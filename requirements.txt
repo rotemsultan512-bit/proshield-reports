@@ -1,0 +1,4 @@
+# Render expects requirements.txt at the repository root.
+# We keep the actual app dependencies in ./proshield-reports/requirements.txt.
+
+-r proshield-reports/requirements.txt
