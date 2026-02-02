@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}404 - לא נמצא{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <div class="error-content">
+        <div class="error-icon">🔍</div>
+        <h1>404</h1>
+        <h2>העמוד לא נמצא</h2>
+        <p>העמוד שחיפשת אינו קיים או שהוסר.</p>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">חזרה לעמוד הראשי</a>
+    </div>
+</div>
+{% endblock %}

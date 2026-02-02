@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+
+{% block title %}דוחות - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="dashboard-page">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1>הדוחות שלי</h1>
+        <a href="{{ url_for('new_report') }}" class="btn btn-primary">
+            + דוח חדש
+        </a>
+    </div>
+
+    <!-- KPI Stats Cards -->
+    <div class="stats-row" id="statsRow">
+        <div class="stat-card gradient-blue">
+            <div class="stat-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                </svg>
+            </div>
+            <div class="stat-value" id="totalReports">-</div>
+            <div class="stat-label">סה"כ דוחות</div>
+        </div>
+        <div class="stat-card gradient-orange">
+            <div class="stat-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="1" y="3" width="15" height="13"/>
+                    <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
+                    <circle cx="5.5" cy="18.5" r="2.5"/>
+                    <circle cx="18.5" cy="18.5" r="2.5"/>
+                </svg>
+            </div>
+            <div class="stat-value" id="deliveryReports">-</div>
+            <div class="stat-label">דוחות אספקה</div>
+        </div>
+        <div class="stat-card gradient-green">
+            <div class="stat-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+            </div>
+            <div class="stat-value" id="installationReports">-</div>
+            <div class="stat-label">דוחות התקנה</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/>
+                    <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+            </div>
+            <div class="stat-value" id="thisMonthReports">-</div>
+            <div class="stat-label">החודש</div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-card">
+        <div class="filters-row">
+            <div class="filter-group">
+                <label>סוג דוח</label>
+                <select id="filterType">
+                    <option value="">הכל</option>
+                    <option value="delivery">אספקה</option>
+                    <option value="installation">התקנה</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>סטטוס</label>
+                <select id="filterStatus">
+                    <option value="">הכל</option>
+                    <option value="completed">הושלם</option>
+                    <option value="return_required">נדרש חזרה</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>מתאריך</label>
+                <input type="date" id="filterDateFrom">
+            </div>
+            <div class="filter-group">
+                <label>עד תאריך</label>
+                <input type="date" id="filterDateTo">
+            </div>
+            <div class="filter-group filter-search">
+                <label>חיפוש</label>
+                <input type="text" id="filterSearch" placeholder="חפש לפי כתובת...">
+            </div>
+        </div>
+        <div class="filters-actions">
+            <button class="btn btn-primary btn-sm" id="applyFilters">
+                חפש
+            </button>
+            <button class="btn btn-ghost btn-sm" id="clearFilters">
+                נקה פילטרים
+            </button>
+        </div>
+    </div>
+
+    <!-- Reports List -->
+    <div class="reports-container">
+        <div class="reports-list" id="reportsList">
+            <!-- Reports will be loaded here -->
+        </div>
+
+        <!-- Loading State -->
+        <div class="reports-loading" id="reportsLoading">
+            <div class="loading-spinner"></div>
+            <span>טוען דוחות...</span>
+        </div>
+
+        <!-- Empty State -->
+        <div class="reports-empty" id="reportsEmpty" style="display:none;">
+            <div class="empty-icon">
+                <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
+                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                </svg>
+            </div>
+            <h3>אין דוחות</h3>
+            <p>לא נמצאו דוחות התואמים לחיפוש</p>
+            <a href="{{ url_for('new_report') }}" class="btn btn-primary">+ צור דוח חדש</a>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination" style="display:none;">
+            <button class="btn btn-ghost btn-sm" id="prevPage" disabled>הקודם</button>
+            <span class="page-info" id="pageInfo"></span>
+            <button class="btn btn-ghost btn-sm" id="nextPage">הבא</button>
+        </div>
+    </div>
+
+    <!-- Offline Reports Indicator -->
+    <div class="offline-reports-banner" id="offlineReportsBanner" style="display:none;">
+        <span>יש <span id="offlineCount">0</span> דוחות שממתינים לסנכרון</span>
+        <button class="btn btn-sm" id="syncNowBtn">סנכרן עכשיו</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Global state
+    let currentPage = 1;
+    let totalPages = 1;
+    const perPage = 20;
+
+    // DOM Elements
+    const reportsList = document.getElementById('reportsList');
+    const reportsLoading = document.getElementById('reportsLoading');
+    const reportsEmpty = document.getElementById('reportsEmpty');
+    const pagination = document.getElementById('pagination');
+    const pageInfo = document.getElementById('pageInfo');
+
+    // Load reports and stats on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        loadReports();
+        loadStats();
+        checkOfflineReports();
+    });
+
+    // Filter handlers
+    document.getElementById('applyFilters').addEventListener('click', () => {
+        currentPage = 1;
+        loadReports();
+    });
+
+    document.getElementById('clearFilters').addEventListener('click', () => {
+        document.getElementById('filterType').value = '';
+        document.getElementById('filterStatus').value = '';
+        document.getElementById('filterDateFrom').value = '';
+        document.getElementById('filterDateTo').value = '';
+        document.getElementById('filterSearch').value = '';
+        currentPage = 1;
+        loadReports();
+    });
+
+    // Enter key in search
+    document.getElementById('filterSearch').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            currentPage = 1;
+            loadReports();
+        }
+    });
+
+    // Pagination handlers
+    document.getElementById('prevPage').addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            loadReports();
+        }
+    });
+
+    document.getElementById('nextPage').addEventListener('click', () => {
+        if (currentPage < totalPages) {
+            currentPage++;
+            loadReports();
+        }
+    });
+
+    // Sync button
+    document.getElementById('syncNowBtn').addEventListener('click', syncOfflineReports);
+
+    // Load stats
+    async function loadStats() {
+        try {
+            const response = await fetch('/api/reports/stats');
+            const data = await response.json();
+
+            document.getElementById('totalReports').textContent = data.total || 0;
+            document.getElementById('deliveryReports').textContent = data.delivery || 0;
+            document.getElementById('installationReports').textContent = data.installation || 0;
+            document.getElementById('thisMonthReports').textContent = data.this_month || 0;
+        } catch (error) {
+            console.error('Error loading stats:', error);
+            // Set defaults on error
+            document.getElementById('totalReports').textContent = '-';
+            document.getElementById('deliveryReports').textContent = '-';
+            document.getElementById('installationReports').textContent = '-';
+            document.getElementById('thisMonthReports').textContent = '-';
+        }
+    }
+
+    async function loadReports() {
+        showLoading(true);
+
+        const params = new URLSearchParams({
+            page: currentPage,
+            per_page: perPage
+        });
+
+        const type = document.getElementById('filterType').value;
+        const status = document.getElementById('filterStatus').value;
+        const dateFrom = document.getElementById('filterDateFrom').value;
+        const dateTo = document.getElementById('filterDateTo').value;
+        const search = document.getElementById('filterSearch').value;
+
+        if (type) params.append('type', type);
+        if (status) params.append('status', status);
+        if (dateFrom) params.append('date_from', dateFrom);
+        if (dateTo) params.append('date_to', dateTo);
+        if (search) params.append('search', search);
+
+        try {
+            const response = await fetch(`/api/reports?${params}`);
+            const data = await response.json();
+
+            totalPages = data.pages;
+            renderReports(data.reports);
+            updatePagination(data.total, data.pages, data.current_page);
+
+        } catch (error) {
+            console.error('Error loading reports:', error);
+            showToast('שגיאה בטעינת דוחות', 'error');
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    function renderReports(reports) {
+        if (reports.length === 0) {
+            reportsList.innerHTML = '';
+            reportsEmpty.style.display = 'block';
+            pagination.style.display = 'none';
+            return;
+        }
+
+        reportsEmpty.style.display = 'none';
+
+        reportsList.innerHTML = reports.map(report => `
+            <a href="/report/${report.id}" class="report-card">
+                <div class="report-card-header">
+                    <span class="report-type ${report.report_type}">
+                        ${report.report_type === 'delivery' ? 'אספקה' : 'התקנה'}
+                    </span>
+                    <span class="report-status ${report.status}">
+                        ${report.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}
+                    </span>
+                </div>
+                <div class="report-card-body">
+                    <div class="report-address">
+                        <span>${escapeHtml(report.address)}</span>
+                    </div>
+                    <div class="report-products">
+                        <span>${report.products.length} מוצרים</span>
+                    </div>
+                    {% if current_user.is_admin() %}
+                    <div class="report-user">
+                        <span>${escapeHtml(report.user_name)}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="report-card-footer">
+                    <span class="report-date">
+                        ${formatDate(report.timestamp)}
+                    </span>
+                    <span class="report-images">
+                        ${report.images.length} תמונות
+                    </span>
+                </div>
+            </a>
+        `).join('');
+    }
+
+    function updatePagination(total, pages, current) {
+        if (pages <= 1) {
+            pagination.style.display = 'none';
+            return;
+        }
+
+        pagination.style.display = 'flex';
+        pageInfo.textContent = `עמוד ${current} מתוך ${pages} (${total} דוחות)`;
+
+        document.getElementById('prevPage').disabled = current <= 1;
+        document.getElementById('nextPage').disabled = current >= pages;
+    }
+
+    function showLoading(show) {
+        reportsLoading.style.display = show ? 'flex' : 'none';
+        if (show) {
+            reportsList.innerHTML = '';
+            reportsEmpty.style.display = 'none';
+        }
+    }
+
+    function formatDate(isoString) {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        return date.toLocaleDateString('he-IL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Offline reports handling
+    function checkOfflineReports() {
+        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
+        const banner = document.getElementById('offlineReportsBanner');
+        const countSpan = document.getElementById('offlineCount');
+
+        if (offlineReports.length > 0) {
+            countSpan.textContent = offlineReports.length;
+            banner.style.display = 'flex';
+        } else {
+            banner.style.display = 'none';
+        }
+    }
+
+    async function syncOfflineReports() {
+        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
+
+        if (offlineReports.length === 0) {
+            showToast('אין דוחות לסנכרון', 'info');
+            return;
+        }
+
+        if (!navigator.onLine) {
+            showToast('אין חיבור לאינטרנט', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reports: offlineReports })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                localStorage.removeItem('offlineReports');
+                showToast(`${data.synced_count} דוחות סונכרנו בהצלחה`, 'success');
+                checkOfflineReports();
+                loadReports();
+                loadStats();
+            } else {
+                showToast('שגיאה בסנכרון', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    }
+
+    // Make sync function globally available
+    window.syncOfflineReports = syncOfflineReports;
+</script>
+{% endblock %}

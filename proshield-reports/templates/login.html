@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#F7A832">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Proshield Reports">
+
+    <title>התחברות - Proshield Reports</title>
+
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
+    <link rel="apple-touch-icon" href="/static/images/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="login-page">
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">
+                    <img src="/static/images/proshield-logo.svg" alt="Proshield">
+                </div>
+                <h1>Proshield Reports</h1>
+                <p>מערכת דיווח שטח</p>
+            </div>
+
+            <form id="loginForm" class="login-form">
+                <div class="form-group">
+                    <label for="username">שם משתמש</label>
+                    <input type="text" id="username" name="username" required autocomplete="username" autofocus placeholder="הזן שם משתמש">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">סיסמה</label>
+                    <div class="password-input">
+                        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="הזן סיסמה">
+                        <button type="button" class="toggle-password" id="togglePassword">
+                            <span class="eye-icon">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-error" id="formError"></div>
+
+                <button type="submit" class="btn btn-primary btn-block btn-lg" id="loginBtn">
+                    <span class="btn-text">התחבר</span>
+                    <span class="btn-loading" style="display:none;">
+                        <span class="spinner"></span>
+                        מתחבר...
+                    </span>
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <p>&copy; {{ 2025 }} Proshield - כל הזכויות שמורות</p>
+            </div>
+        </div>
+
+        <!-- Install PWA prompt -->
+        <div class="install-prompt" id="installPrompt" style="display:none;">
+            <div class="install-content">
+                <span class="install-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                </span>
+                <span class="install-text">התקן את האפליקציה</span>
+            </div>
+            <button class="install-btn" id="installBtn">התקן</button>
+            <button class="install-close" id="installClose">&times;</button>
+        </div>
+    </div>
+
+    <script>
+        // Login form handling
+        const loginForm = document.getElementById('loginForm');
+        const formError = document.getElementById('formError');
+        const loginBtn = document.getElementById('loginBtn');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                showError('יש למלא את כל השדות');
+                return;
+            }
+
+            // Show loading
+            loginBtn.querySelector('.btn-text').style.display = 'none';
+            loginBtn.querySelector('.btn-loading').style.display = 'flex';
+            loginBtn.disabled = true;
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    window.location.href = data.redirect || '/dashboard';
+                } else {
+                    showError(data.error || 'שגיאה בהתחברות');
+                }
+            } catch (error) {
+                showError('שגיאת תקשורת. נסה שנית.');
+            } finally {
+                loginBtn.querySelector('.btn-text').style.display = 'block';
+                loginBtn.querySelector('.btn-loading').style.display = 'none';
+                loginBtn.disabled = false;
+            }
+        });
+
+        function showError(message) {
+            formError.textContent = message;
+            formError.style.display = 'block';
+            // Add shake animation
+            formError.style.animation = 'none';
+            formError.offsetHeight; // Trigger reflow
+            formError.style.animation = 'shake 0.5s ease';
+            setTimeout(() => {
+                formError.style.display = 'none';
+            }, 5000);
+        }
+
+        // Toggle password visibility
+        document.getElementById('togglePassword').addEventListener('click', () => {
+            const passwordInput = document.getElementById('password');
+            const eyeIcon = document.querySelector('.eye-icon');
+            const type = passwordInput.type === 'password' ? 'text' : 'password';
+            passwordInput.type = type;
+
+            if (type === 'text') {
+                eyeIcon.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                `;
+            } else {
+                eyeIcon.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                `;
+            }
+        });
+
+        // PWA Install prompt
+        let deferredPrompt;
+        const installPrompt = document.getElementById('installPrompt');
+        const installBtn = document.getElementById('installBtn');
+        const installClose = document.getElementById('installClose');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installPrompt.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                console.log('Install prompt outcome:', outcome);
+                deferredPrompt = null;
+                installPrompt.style.display = 'none';
+            }
+        });
+
+        installClose.addEventListener('click', () => {
+            installPrompt.style.display = 'none';
+        });
+
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('SW registered'))
+                    .catch(err => console.log('SW registration failed:', err));
+            });
+        }
+
+        // Add shake animation styles
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes shake {
+                0%, 100% { transform: translateX(0); }
+                10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+                20%, 40%, 60%, 80% { transform: translateX(5px); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>

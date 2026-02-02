@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}500 - שגיאת שרת{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <div class="error-content">
+        <div class="error-icon">⚠️</div>
+        <h1>500</h1>
+        <h2>שגיאת שרת</h2>
+        <p>אירעה שגיאה בשרת. אנא נסה שוב מאוחר יותר.</p>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">חזרה לעמוד הראשי</a>
+    </div>
+</div>
+{% endblock %}

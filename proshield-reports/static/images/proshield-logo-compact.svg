@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 36" width="180" height="36">
+  <defs>
+    <linearGradient id="orangeGradNav" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F7A832"/>
+      <stop offset="100%" style="stop-color:#E8941C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- PRO text -->
+  <text x="0" y="27" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="24" fill="#1a1a2e" letter-spacing="-0.5">PRO</text>
+
+  <!-- Shield/Chevron Icon -->
+  <g transform="translate(50, 2)">
+    <path d="M0 0 L14 0 L14 4 L7 10 L0 4 Z" fill="url(#orangeGradNav)"/>
+    <path d="M0 6 L14 6 L14 10 L7 16 L0 10 Z" fill="url(#orangeGradNav)"/>
+    <path d="M0 12 L14 12 L14 16 L7 22 L0 16 Z" fill="url(#orangeGradNav)"/>
+    <path d="M0 18 L14 18 L14 22 L7 28 L0 22 Z" fill="url(#orangeGradNav)"/>
+  </g>
+
+  <!-- SHIELD text -->
+  <text x="70" y="27" font-family="Arial Black, Arial, sans-serif" font-weight="900" font-size="24" fill="#1a1a2e" letter-spacing="-0.5">SHIELD</text>
+</svg>

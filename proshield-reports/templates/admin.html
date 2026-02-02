@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block title %}ניהול - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <div class="page-header">
+        <h1>⚙️ לוח בקרה - ניהול</h1>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+            <div class="stat-icon">📋</div>
+            <div class="stat-value" id="totalReports">-</div>
+            <div class="stat-label">סה"כ דוחות</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-value" id="completedReports">-</div>
+            <div class="stat-label">הושלמו</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🔄</div>
+            <div class="stat-value" id="pendingReports">-</div>
+            <div class="stat-label">ממתינים</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🚚</div>
+            <div class="stat-value" id="deliveryReports">-</div>
+            <div class="stat-label">אספקות</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🔧</div>
+            <div class="stat-value" id="installationReports">-</div>
+            <div class="stat-label">התקנות</div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="admin-tabs">
+        <button class="tab-btn active" data-tab="users">👥 ניהול משתמשים</button>
+        <button class="tab-btn" data-tab="export">📥 יצוא נתונים</button>
+        <button class="tab-btn" data-tab="reports-per-user">📊 דוחות לפי משתמש</button>
+    </div>
+
+    <!-- Users Tab -->
+    <div class="tab-content active" id="usersTab">
+        <div class="admin-card">
+            <div class="card-header">
+                <h2>👥 משתמשים</h2>
+                <button class="btn btn-primary btn-sm" id="addUserBtn">➕ הוסף משתמש</button>
+            </div>
+            <div class="users-list" id="usersList">
+                <!-- Users will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Tab -->
+    <div class="tab-content" id="exportTab">
+        <div class="admin-card">
+            <h2>📥 יצוא דוחות לאקסל</h2>
+            <div class="export-filters">
+                <div class="filter-group">
+                    <label>מתאריך</label>
+                    <input type="date" id="exportDateFrom">
+                </div>
+                <div class="filter-group">
+                    <label>עד תאריך</label>
+                    <input type="date" id="exportDateTo">
+                </div>
+                <div class="filter-group">
+                    <label>סוג דוח</label>
+                    <select id="exportType">
+                        <option value="">הכל</option>
+                        <option value="delivery">אספקה</option>
+                        <option value="installation">התקנה</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn btn-primary btn-lg" id="exportBtn">
+                📥 הורד קובץ אקסל
+            </button>
+        </div>
+    </div>
+
+    <!-- Reports per User Tab -->
+    <div class="tab-content" id="reports-per-userTab">
+        <div class="admin-card">
+            <h2>📊 דוחות לפי משתמש</h2>
+            <div class="user-stats-list" id="userStatsList">
+                <!-- User stats will be loaded here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal" id="addUserModal">
+    <div class="modal-content">
+        <h3>➕ הוסף משתמש חדש</h3>
+        <form id="addUserForm">
+            <div class="form-group">
+                <label>שם משתמש</label>
+                <input type="text" id="newUsername" required>
+            </div>
+            <div class="form-group">
+                <label>סיסמה</label>
+                <input type="password" id="newPassword" required minlength="6">
+            </div>
+            <div class="form-group">
+                <label>שם מלא</label>
+                <input type="text" id="newFullName" required>
+            </div>
+            <div class="form-group">
+                <label>תפקיד</label>
+                <select id="newRole">
+                    <option value="user">משתמש רגיל</option>
+                    <option value="admin">מנהל</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" id="cancelAddUser">ביטול</button>
+                <button type="submit" class="btn btn-primary">הוסף</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete User Modal -->
+<div class="modal" id="deleteUserModal">
+    <div class="modal-content">
+        <h3>🗑️ מחיקת משתמש</h3>
+        <p>האם אתה בטוח שברצונך למחוק את המשתמש <strong id="deleteUserName"></strong>?</p>
+        <p class="warning">פעולה זו אינה ניתנת לביטול!</p>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" id="cancelDeleteUser">ביטול</button>
+            <button class="btn btn-danger" id="confirmDeleteUser">מחק</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let userToDelete = null;
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabId = btn.dataset.tab;
+
+            // Update buttons
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(tabId + 'Tab').classList.add('active');
+        });
+    });
+
+    // Load data on page load
+    document.addEventListener('DOMContentLoaded', () => {
+        loadStats();
+        loadUsers();
+    });
+
+    // Load statistics
+    async function loadStats() {
+        try {
+            const response = await fetch('/api/stats');
+            const data = await response.json();
+
+            document.getElementById('totalReports').textContent = data.total_reports;
+            document.getElementById('completedReports').textContent = data.completed_reports;
+            document.getElementById('pendingReports').textContent = data.pending_reports;
+            document.getElementById('deliveryReports').textContent = data.delivery_reports;
+            document.getElementById('installationReports').textContent = data.installation_reports;
+
+            // User stats
+            renderUserStats(data.reports_per_user);
+        } catch (error) {
+            console.error('Error loading stats:', error);
+        }
+    }
+
+    function renderUserStats(userStats) {
+        const container = document.getElementById('userStatsList');
+        container.innerHTML = userStats.map(user => `
+            <div class="user-stat-item">
+                <span class="user-name">${escapeHtml(user.full_name)}</span>
+                <span class="user-count">${user.count} דוחות</span>
+            </div>
+        `).join('');
+    }
+
+    // Load users
+    async function loadUsers() {
+        try {
+            const response = await fetch('/api/users');
+            const data = await response.json();
+            renderUsers(data.users);
+        } catch (error) {
+            console.error('Error loading users:', error);
+        }
+    }
+
+    function renderUsers(users) {
+        const container = document.getElementById('usersList');
+        container.innerHTML = users.map(user => `
+            <div class="user-item">
+                <div class="user-avatar">${user.full_name[0]}</div>
+                <div class="user-info">
+                    <div class="user-name">${escapeHtml(user.full_name)}</div>
+                    <div class="user-username">@${escapeHtml(user.username)}</div>
+                </div>
+                <span class="user-role ${user.role}">${user.role === 'admin' ? 'מנהל' : 'משתמש'}</span>
+                ${user.id !== {{ current_user.id }} ? `
+                    <button class="btn btn-ghost btn-sm delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.full_name)}">
+                        🗑️
+                    </button>
+                ` : ''}
+            </div>
+        `).join('');
+
+        // Add delete handlers
+        document.querySelectorAll('.delete-user-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                userToDelete = btn.dataset.id;
+                document.getElementById('deleteUserName').textContent = btn.dataset.name;
+                document.getElementById('deleteUserModal').classList.add('active');
+            });
+        });
+    }
+
+    // Add user modal
+    document.getElementById('addUserBtn').addEventListener('click', () => {
+        document.getElementById('addUserModal').classList.add('active');
+    });
+
+    document.getElementById('cancelAddUser').addEventListener('click', () => {
+        document.getElementById('addUserModal').classList.remove('active');
+        document.getElementById('addUserForm').reset();
+    });
+
+    document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const userData = {
+            username: document.getElementById('newUsername').value.trim(),
+            password: document.getElementById('newPassword').value,
+            full_name: document.getElementById('newFullName').value.trim(),
+            role: document.getElementById('newRole').value
+        };
+
+        try {
+            const response = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(userData)
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('המשתמש נוסף בהצלחה', 'success');
+                document.getElementById('addUserModal').classList.remove('active');
+                document.getElementById('addUserForm').reset();
+                loadUsers();
+            } else {
+                showToast(data.error || 'שגיאה בהוספת משתמש', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    // Delete user modal
+    document.getElementById('cancelDeleteUser').addEventListener('click', () => {
+        document.getElementById('deleteUserModal').classList.remove('active');
+        userToDelete = null;
+    });
+
+    document.getElementById('confirmDeleteUser').addEventListener('click', async () => {
+        if (!userToDelete) return;
+
+        try {
+            const response = await fetch(`/api/users/${userToDelete}`, {
+                method: 'DELETE'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('המשתמש נמחק בהצלחה', 'success');
+                document.getElementById('deleteUserModal').classList.remove('active');
+                userToDelete = null;
+                loadUsers();
+            } else {
+                showToast(data.error || 'שגיאה במחיקת משתמש', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    // Export
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        const params = new URLSearchParams();
+
+        const dateFrom = document.getElementById('exportDateFrom').value;
+        const dateTo = document.getElementById('exportDateTo').value;
+        const type = document.getElementById('exportType').value;
+
+        if (dateFrom) params.append('date_from', dateFrom);
+        if (dateTo) params.append('date_to', dateTo);
+        if (type) params.append('type', type);
+
+        window.location.href = `/api/export?${params}`;
+    });
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+{% endblock %}

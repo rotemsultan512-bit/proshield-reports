@@ -1,0 +1,557 @@
+{% extends "base.html" %}
+
+{% block title %}דוח חדש - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="new-report-page">
+    <div class="page-header">
+        <a href="{{ url_for('dashboard') }}" class="back-link">◀ חזרה לדוחות</a>
+        <h1>📝 דוח חדש</h1>
+    </div>
+
+    <form id="reportForm" class="report-form">
+        <!-- Step 1: Report Type -->
+        <div class="form-section">
+            <h2>1. סוג דוח</h2>
+            <div class="report-type-selector">
+                <label class="type-option">
+                    <input type="radio" name="report_type" value="delivery" required>
+                    <div class="type-card">
+                        <span class="type-icon">🚚</span>
+                        <span class="type-label">אספקה</span>
+                    </div>
+                </label>
+                <label class="type-option">
+                    <input type="radio" name="report_type" value="installation" required>
+                    <div class="type-card">
+                        <span class="type-icon">🔧</span>
+                        <span class="type-label">התקנה</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Step 2: Address -->
+        <div class="form-section">
+            <h2>2. <span id="addressLabel">כתובת</span></h2>
+            <div class="form-group">
+                <input type="text" id="address" name="address" placeholder="הזן כתובת..." required>
+            </div>
+        </div>
+
+        <!-- Step 3: Products -->
+        <div class="form-section">
+            <h2>3. מוצרים</h2>
+            <div class="products-selector">
+                <div class="products-search">
+                    <input type="text" id="productSearch" placeholder="🔍 חפש מוצר...">
+                </div>
+                <div class="products-list" id="productsList">
+                    {% for product in products %}
+                    <label class="product-item">
+                        <input type="checkbox" name="products" value="{{ product }}">
+                        <span class="product-name">{{ product }}</span>
+                        <div class="product-quantity" style="display:none;">
+                            <label id="quantityLabel">כמות:</label>
+                            <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input">
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="selected-products" id="selectedProducts">
+                <h3>מוצרים שנבחרו:</h3>
+                <div class="selected-list" id="selectedList">
+                    <p class="no-selection">לא נבחרו מוצרים</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Status -->
+        <div class="form-section">
+            <h2>4. סטטוס</h2>
+            <div class="status-selector">
+                <label class="status-option">
+                    <input type="radio" name="status" value="completed" required>
+                    <div class="status-card completed">
+                        <span class="status-icon">✅</span>
+                        <span class="status-label">הושלם</span>
+                    </div>
+                </label>
+                <label class="status-option">
+                    <input type="radio" name="status" value="return_required" required>
+                    <div class="status-card return">
+                        <span class="status-icon">🔄</span>
+                        <span class="status-label">נדרש חזרה</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Step 5: Photos -->
+        <div class="form-section">
+            <h2>5. <span id="photosLabel">תמונות</span></h2>
+            <div class="photos-upload">
+                <div class="upload-area" id="photosUploadArea">
+                    <input type="file" id="photosInput" name="images" accept="image/*" multiple capture="environment" style="display:none;">
+                    <div class="upload-placeholder">
+                        <span class="upload-icon">📷</span>
+                        <span class="upload-text">לחץ לצלם או להעלות תמונות</span>
+                        <span class="upload-hint">עד 10 תמונות, 5MB כל אחת</span>
+                    </div>
+                </div>
+                <div class="photos-preview" id="photosPreview"></div>
+            </div>
+        </div>
+
+        <!-- Step 6: Delivery Note (Delivery Only - MANDATORY) -->
+        <div class="form-section delivery-note-section" id="deliveryNoteSection" style="display:none;">
+            <h2>6. תעודת משלוח חתומה <span class="required-badge">חובה</span></h2>
+            <div class="delivery-note-upload">
+                <div class="upload-area" id="deliveryNoteUploadArea">
+                    <input type="file" id="deliveryNoteInput" name="delivery_note" accept=".pdf,.jpg,.jpeg,.png,image/*" style="display:none;">
+                    <div class="upload-placeholder">
+                        <span class="upload-icon">📄</span>
+                        <span class="upload-text">לחץ להעלות תעודת משלוח חתומה</span>
+                        <span class="upload-hint">PDF או תמונה (jpg, png), עד 10MB</span>
+                    </div>
+                </div>
+                <div class="delivery-note-preview" id="deliveryNotePreview"></div>
+                <div class="delivery-note-error" id="deliveryNoteError" style="display:none;">
+                    <span class="error-icon">⚠️</span>
+                    <span class="error-text">יש להעלות תעודת משלוח חתומה</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 7: Notes -->
+        <div class="form-section">
+            <h2 id="notesStepLabel">6. הערות (אופציונלי)</h2>
+            <div class="form-group">
+                <textarea id="notes" name="notes" rows="3" placeholder="הערות נוספות..."></textarea>
+            </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn">
+                <span class="btn-text">💾 שמור דוח</span>
+                <span class="btn-loading" style="display:none;">
+                    <span class="spinner"></span>
+                    שומר...
+                </span>
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // DOM Elements
+    const reportForm = document.getElementById('reportForm');
+    const reportTypeInputs = document.querySelectorAll('input[name="report_type"]');
+    const addressLabel = document.getElementById('addressLabel');
+    const photosLabel = document.getElementById('photosLabel');
+    const documentSection = document.getElementById('documentSection');
+    const notesStepLabel = document.getElementById('notesStepLabel');
+    const productSearch = document.getElementById('productSearch');
+    const productItems = document.querySelectorAll('.product-item');
+    const photosInput = document.getElementById('photosInput');
+    const photosUploadArea = document.getElementById('photosUploadArea');
+    const photosPreview = document.getElementById('photosPreview');
+    const deliveryNoteInput = document.getElementById('deliveryNoteInput');
+    const deliveryNoteUploadArea = document.getElementById('deliveryNoteUploadArea');
+    const deliveryNotePreview = document.getElementById('deliveryNotePreview');
+    const deliveryNoteSection = document.getElementById('deliveryNoteSection');
+    const deliveryNoteError = document.getElementById('deliveryNoteError');
+    const submitBtn = document.getElementById('submitBtn');
+
+    // Selected products data
+    let selectedProducts = [];
+    let uploadedPhotos = [];
+    let uploadedDeliveryNote = null;
+
+    // Report type change handler
+    reportTypeInputs.forEach(input => {
+        input.addEventListener('change', (e) => {
+            const type = e.target.value;
+
+            if (type === 'delivery') {
+                addressLabel.textContent = 'כתובת אספקה';
+                photosLabel.textContent = 'תמונות סחורה שסופקה';
+                deliveryNoteSection.style.display = 'block';
+                notesStepLabel.textContent = '7. הערות (אופציונלי)';
+                updateQuantityLabels('כמות שסופקה:');
+            } else {
+                addressLabel.textContent = 'כתובת התקנה';
+                photosLabel.textContent = 'תמונות הפרויקט';
+                deliveryNoteSection.style.display = 'none';
+                notesStepLabel.textContent = '6. הערות (אופציונלי)';
+                updateQuantityLabels('כמות שהותקנה:');
+                // Clear delivery note error when switching to installation
+                deliveryNoteError.style.display = 'none';
+            }
+        });
+    });
+
+    function updateQuantityLabels(text) {
+        document.querySelectorAll('.product-quantity label').forEach(label => {
+            label.textContent = text;
+        });
+    }
+
+    // Product search
+    productSearch.addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        productItems.forEach(item => {
+            const productName = item.querySelector('.product-name').textContent.toLowerCase();
+            item.style.display = productName.includes(searchTerm) ? 'flex' : 'none';
+        });
+    });
+
+    // Product selection
+    productItems.forEach(item => {
+        const checkbox = item.querySelector('input[type="checkbox"]');
+        const quantityDiv = item.querySelector('.product-quantity');
+        const quantityInput = item.querySelector('.quantity-input');
+
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                quantityDiv.style.display = 'flex';
+                quantityInput.focus();
+            } else {
+                quantityDiv.style.display = 'none';
+                quantityInput.value = '';
+            }
+            updateSelectedProducts();
+        });
+
+        quantityInput.addEventListener('input', updateSelectedProducts);
+    });
+
+    function updateSelectedProducts() {
+        selectedProducts = [];
+        const selectedList = document.getElementById('selectedList');
+
+        productItems.forEach(item => {
+            const checkbox = item.querySelector('input[type="checkbox"]');
+            const quantityInput = item.querySelector('.quantity-input');
+
+            if (checkbox.checked && quantityInput.value) {
+                selectedProducts.push({
+                    name: checkbox.value,
+                    quantity: parseFloat(quantityInput.value) || 0
+                });
+            }
+        });
+
+        if (selectedProducts.length === 0) {
+            selectedList.innerHTML = '<p class="no-selection">לא נבחרו מוצרים</p>';
+        } else {
+            selectedList.innerHTML = selectedProducts.map(p => `
+                <div class="selected-item">
+                    <span class="item-name">${escapeHtml(p.name)}</span>
+                    <span class="item-qty">${p.quantity}</span>
+                </div>
+            `).join('');
+        }
+    }
+
+    // Photos upload
+    photosUploadArea.addEventListener('click', () => photosInput.click());
+
+    photosInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        handlePhotosUpload(files);
+    });
+
+    // Drag and drop for photos
+    photosUploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        photosUploadArea.classList.add('dragover');
+    });
+
+    photosUploadArea.addEventListener('dragleave', () => {
+        photosUploadArea.classList.remove('dragover');
+    });
+
+    photosUploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        photosUploadArea.classList.remove('dragover');
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        handlePhotosUpload(files);
+    });
+
+    function handlePhotosUpload(files) {
+        const maxFiles = 10;
+        const maxSize = 5 * 1024 * 1024; // 5MB
+
+        files.forEach(file => {
+            if (uploadedPhotos.length >= maxFiles) {
+                showToast('ניתן להעלות עד 10 תמונות', 'warning');
+                return;
+            }
+
+            if (file.size > maxSize) {
+                showToast(`הקובץ ${file.name} גדול מדי (מקסימום 5MB)`, 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                uploadedPhotos.push({
+                    file: file,
+                    preview: e.target.result
+                });
+                renderPhotosPreview();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function renderPhotosPreview() {
+        photosPreview.innerHTML = uploadedPhotos.map((photo, index) => `
+            <div class="photo-preview-item">
+                <img src="${photo.preview}" alt="Preview">
+                <button type="button" class="remove-photo" data-index="${index}">&times;</button>
+            </div>
+        `).join('');
+
+        // Add remove handlers
+        document.querySelectorAll('.remove-photo').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                uploadedPhotos.splice(index, 1);
+                renderPhotosPreview();
+            });
+        });
+    }
+
+    // Delivery Note upload
+    deliveryNoteUploadArea.addEventListener('click', () => deliveryNoteInput.click());
+
+    // Drag and drop for delivery note
+    deliveryNoteUploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        deliveryNoteUploadArea.classList.add('dragover');
+    });
+
+    deliveryNoteUploadArea.addEventListener('dragleave', () => {
+        deliveryNoteUploadArea.classList.remove('dragover');
+    });
+
+    deliveryNoteUploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        deliveryNoteUploadArea.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            handleDeliveryNoteUpload(file);
+        }
+    });
+
+    deliveryNoteInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            handleDeliveryNoteUpload(file);
+        }
+    });
+
+    function handleDeliveryNoteUpload(file) {
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+
+        // Check file extension
+        const fileName = file.name.toLowerCase();
+        const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+
+        if (!hasValidExtension && !allowedTypes.includes(file.type)) {
+            showToast('סוג קובץ לא חוקי. יש להעלות PDF או תמונה (jpg, png)', 'error');
+            return;
+        }
+
+        if (file.size > maxSize) {
+            showToast('הקובץ גדול מדי (מקסימום 10MB)', 'error');
+            return;
+        }
+
+        uploadedDeliveryNote = file;
+        deliveryNoteError.style.display = 'none';
+
+        const isPDF = file.type === 'application/pdf' || fileName.endsWith('.pdf');
+        const isImage = file.type.startsWith('image/') || ['.jpg', '.jpeg', '.png'].some(ext => fileName.endsWith(ext));
+
+        let previewHtml = `
+            <div class="delivery-note-preview-item">
+                <span class="doc-icon">${isPDF ? '📄' : '🖼️'}</span>
+                <span class="doc-name">${escapeHtml(file.name)}</span>
+                <span class="doc-size">(${formatFileSize(file.size)})</span>
+                <button type="button" class="remove-doc" id="removeDeliveryNote">&times;</button>
+            </div>
+        `;
+
+        // If it's an image, show thumbnail preview
+        if (isImage) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                deliveryNotePreview.innerHTML = `
+                    <div class="delivery-note-preview-item with-thumbnail">
+                        <img src="${e.target.result}" alt="Preview" class="doc-thumbnail">
+                        <div class="doc-info">
+                            <span class="doc-name">${escapeHtml(file.name)}</span>
+                            <span class="doc-size">(${formatFileSize(file.size)})</span>
+                        </div>
+                        <button type="button" class="remove-doc" id="removeDeliveryNote">&times;</button>
+                    </div>
+                `;
+                addRemoveDeliveryNoteHandler();
+            };
+            reader.readAsDataURL(file);
+        } else {
+            deliveryNotePreview.innerHTML = previewHtml;
+            addRemoveDeliveryNoteHandler();
+        }
+    }
+
+    function addRemoveDeliveryNoteHandler() {
+        document.getElementById('removeDeliveryNote').addEventListener('click', () => {
+            uploadedDeliveryNote = null;
+            deliveryNotePreview.innerHTML = '';
+            deliveryNoteInput.value = '';
+        });
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // Form submission
+    reportForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // Validate form
+        const reportType = document.querySelector('input[name="report_type"]:checked')?.value;
+        const address = document.getElementById('address').value.trim();
+        const status = document.querySelector('input[name="status"]:checked')?.value;
+        const notes = document.getElementById('notes').value.trim();
+
+        if (!reportType) {
+            showToast('יש לבחור סוג דוח', 'error');
+            return;
+        }
+
+        if (!address) {
+            showToast('יש להזין כתובת', 'error');
+            return;
+        }
+
+        if (selectedProducts.length === 0) {
+            showToast('יש לבחור לפחות מוצר אחד עם כמות', 'error');
+            return;
+        }
+
+        if (!status) {
+            showToast('יש לבחור סטטוס', 'error');
+            return;
+        }
+
+        // Validate delivery note for delivery reports (MANDATORY)
+        if (reportType === 'delivery' && !uploadedDeliveryNote) {
+            showToast('יש להעלות תעודת משלוח חתומה עבור דוח אספקה', 'error');
+            deliveryNoteError.style.display = 'flex';
+            deliveryNoteSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        // Show loading
+        submitBtn.querySelector('.btn-text').style.display = 'none';
+        submitBtn.querySelector('.btn-loading').style.display = 'flex';
+        submitBtn.disabled = true;
+
+        // Check if online
+        if (!navigator.onLine) {
+            // Save offline
+            saveOfflineReport({
+                report_type: reportType,
+                address: address,
+                status: status,
+                notes: notes,
+                products: selectedProducts,
+                timestamp: new Date().toISOString()
+            });
+            showToast('הדוח נשמר מקומית ויסונכרן כשתהיה תקשורת', 'info');
+            setTimeout(() => window.location.href = '/dashboard', 2000);
+            return;
+        }
+
+        // Create FormData
+        const formData = new FormData();
+        formData.append('report_type', reportType);
+        formData.append('address', address);
+        formData.append('status', status);
+        formData.append('notes', notes);
+        formData.append('products', JSON.stringify(selectedProducts));
+
+        // Add photos
+        uploadedPhotos.forEach(photo => {
+            formData.append('images', photo.file);
+        });
+
+        // Add delivery note (mandatory for delivery reports)
+        if (uploadedDeliveryNote && reportType === 'delivery') {
+            formData.append('delivery_note', uploadedDeliveryNote);
+        }
+
+        try {
+            const response = await fetch('/api/reports', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('הדוח נשמר בהצלחה!', 'success');
+                setTimeout(() => {
+                    window.location.href = `/report/${data.report_id}`;
+                }, 1500);
+            } else {
+                showToast(data.error || 'שגיאה בשמירת הדוח', 'error');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            // Save offline on network error
+            saveOfflineReport({
+                report_type: reportType,
+                address: address,
+                status: status,
+                notes: notes,
+                products: selectedProducts,
+                timestamp: new Date().toISOString()
+            });
+            showToast('שגיאת תקשורת - הדוח נשמר מקומית', 'warning');
+        } finally {
+            submitBtn.querySelector('.btn-text').style.display = 'block';
+            submitBtn.querySelector('.btn-loading').style.display = 'none';
+            submitBtn.disabled = false;
+        }
+    });
+
+    function saveOfflineReport(report) {
+        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
+        offlineReports.push(report);
+        localStorage.setItem('offlineReports', JSON.stringify(offlineReports));
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+{% endblock %}

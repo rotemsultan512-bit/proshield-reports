@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}הגדרות - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+    <div class="page-header">
+        <h1>⚙️ הגדרות</h1>
+    </div>
+
+    <div class="settings-container">
+        <!-- User Info Card -->
+        <div class="settings-card">
+            <h2>👤 פרטי משתמש</h2>
+            <div class="user-info">
+                <div class="info-row">
+                    <span class="info-label">שם משתמש:</span>
+                    <span class="info-value">{{ current_user.username }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">שם מלא:</span>
+                    <span class="info-value">{{ current_user.full_name }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">תפקיד:</span>
+                    <span class="info-value">{{ 'מנהל' if current_user.is_admin() else 'משתמש' }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Password Card -->
+        <div class="settings-card">
+            <h2>🔐 שינוי סיסמה</h2>
+            <form id="passwordForm" class="password-form">
+                <div class="form-group">
+                    <label for="currentPassword">סיסמה נוכחית</label>
+                    <input type="password" id="currentPassword" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">סיסמה חדשה</label>
+                    <input type="password" id="newPassword" minlength="6" required>
+                    <small>לפחות 6 תווים</small>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">אימות סיסמה חדשה</label>
+                    <input type="password" id="confirmPassword" required>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    💾 שמור סיסמה
+                </button>
+            </form>
+        </div>
+
+        <!-- App Info Card -->
+        <div class="settings-card">
+            <h2>ℹ️ אודות האפליקציה</h2>
+            <div class="app-info">
+                <div class="info-row">
+                    <span class="info-label">גרסה:</span>
+                    <span class="info-value">1.0.0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">סטטוס PWA:</span>
+                    <span class="info-value" id="pwaStatus">בודק...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">דוחות מקומיים:</span>
+                    <span class="info-value" id="offlineCount">0</span>
+                </div>
+            </div>
+
+            <!-- Install PWA Button -->
+            <button class="btn btn-secondary btn-block" id="installPwaBtn" style="display:none;">
+                📲 התקן אפליקציה
+            </button>
+
+            <!-- Clear Local Data -->
+            <button class="btn btn-ghost btn-block" id="clearLocalBtn">
+                🗑️ נקה נתונים מקומיים
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Password change form
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const currentPassword = document.getElementById('currentPassword').value;
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+
+        if (newPassword !== confirmPassword) {
+            showToast('הסיסמאות אינן תואמות', 'error');
+            return;
+        }
+
+        if (newPassword.length < 6) {
+            showToast('הסיסמה חייבת להכיל לפחות 6 תווים', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/user/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    current_password: currentPassword,
+                    new_password: newPassword
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('הסיסמה שונתה בהצלחה', 'success');
+                document.getElementById('passwordForm').reset();
+            } else {
+                showToast(data.error || 'שגיאה בשינוי הסיסמה', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    // PWA status check
+    function checkPwaStatus() {
+        const pwaStatus = document.getElementById('pwaStatus');
+
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            pwaStatus.textContent = 'מותקן ✅';
+        } else if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistration().then(reg => {
+                pwaStatus.textContent = reg ? 'זמין להתקנה' : 'לא נתמך';
+            });
+        } else {
+            pwaStatus.textContent = 'לא נתמך';
+        }
+    }
+
+    // Check offline reports count
+    function updateOfflineCount() {
+        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
+        document.getElementById('offlineCount').textContent = offlineReports.length;
+    }
+
+    // Install PWA
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        document.getElementById('installPwaBtn').style.display = 'block';
+    });
+
+    document.getElementById('installPwaBtn').addEventListener('click', async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                showToast('האפליקציה הותקנה בהצלחה', 'success');
+            }
+            deferredPrompt = null;
+            document.getElementById('installPwaBtn').style.display = 'none';
+        }
+    });
+
+    // Clear local data
+    document.getElementById('clearLocalBtn').addEventListener('click', () => {
+        if (confirm('האם אתה בטוח? פעולה זו תמחק את כל הדוחות המקומיים שלא סונכרנו.')) {
+            localStorage.removeItem('offlineReports');
+            showToast('הנתונים המקומיים נמחקו', 'success');
+            updateOfflineCount();
+        }
+    });
+
+    // Initialize
+    checkPwaStatus();
+    updateOfflineCount();
+</script>
+{% endblock %}

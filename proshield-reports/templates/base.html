@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#F7A832">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Proshield Reports">
+
+    <title>{% block title %}Proshield Reports{% endblock %}</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
+    <link rel="apple-touch-icon" href="/static/images/icon-192.png">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    {% if current_user.is_authenticated %}
+    <!-- Premium Sticky Header -->
+    <nav class="navbar">
+        <!-- Right Side (RTL): Logo + Brand -->
+        <div class="navbar-brand">
+            <a href="{{ url_for('dashboard') }}">
+                <img src="/static/images/proshield-logo-compact.svg" alt="Proshield" class="logo-img">
+                <span class="brand-text"><span class="brand-reports">Reports</span></span>
+            </a>
+        </div>
+
+        <!-- Center: Navigation Items (HORIZONTAL ROW) -->
+        <div class="navbar-center">
+            <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                <span>דוחות</span>
+            </a>
+            <a href="{{ url_for('new_report') }}" class="nav-link nav-btn-primary {% if request.endpoint == 'new_report' %}active{% endif %}">
+                <span>+ דוח חדש</span>
+            </a>
+            {% if current_user.is_admin() %}
+            <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
+                <span>ניהול</span>
+            </a>
+            {% endif %}
+        </div>
+
+        <!-- Left Side (RTL): User Menu -->
+        <div class="navbar-user">
+            <div class="user-dropdown">
+                <button class="user-btn">
+                    <span class="user-avatar">{{ current_user.full_name[0] }}</span>
+                    <span class="user-name">{{ current_user.full_name }}</span>
+                </button>
+                <div class="dropdown-menu">
+                    <a href="{{ url_for('settings') }}">הגדרות</a>
+                    <a href="{{ url_for('logout') }}">התנתק</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Menu Button -->
+        <button class="mobile-menu-btn" id="mobileMenuBtn">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+    </nav>
+
+    <!-- Mobile Navigation Drawer -->
+    <div class="mobile-nav" id="mobileNav">
+        <a href="{{ url_for('new_report') }}" class="mobile-nav-link primary">+ דוח חדש</a>
+        <a href="{{ url_for('dashboard') }}" class="mobile-nav-link">דוחות</a>
+        {% if current_user.is_admin() %}
+        <a href="{{ url_for('admin_dashboard') }}" class="mobile-nav-link">ניהול</a>
+        {% endif %}
+        <a href="{{ url_for('settings') }}" class="mobile-nav-link">הגדרות</a>
+        <a href="{{ url_for('logout') }}" class="mobile-nav-link">התנתק</a>
+    </div>
+
+    <!-- Floating Action Button (Mobile Only) -->
+    <a href="{{ url_for('new_report') }}" class="fab" title="דוח חדש">
+        +
+    </a>
+    {% endif %}
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-messages">
+        {% for category, message in messages %}
+        <div class="flash-message {{ category }}">
+            {{ message }}
+            <button class="flash-close">&times;</button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Offline Indicator -->
+    <div class="offline-indicator" id="offlineIndicator">
+        <span>מצב לא מקוון - הדוחות יישמרו מקומית</span>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <span class="loading-text">טוען...</span>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+    {% block extra_js %}{% endblock %}
+
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+
+        // Mobile menu toggle
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileNav = document.getElementById('mobileNav');
+        if (mobileMenuBtn && mobileNav) {
+            mobileMenuBtn.addEventListener('click', () => {
+                mobileNav.classList.toggle('active');
+                mobileMenuBtn.classList.toggle('active');
+            });
+
+            // Close menu when clicking a link
+            mobileNav.querySelectorAll('.mobile-nav-link').forEach(link => {
+                link.addEventListener('click', () => {
+                    mobileNav.classList.remove('active');
+                    mobileMenuBtn.classList.remove('active');
+                });
+            });
+
+            // Close menu when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.mobile-nav') && !e.target.closest('.mobile-menu-btn')) {
+                    mobileNav.classList.remove('active');
+                    mobileMenuBtn.classList.remove('active');
+                }
+            });
+        }
+
+        // Flash message close
+        document.querySelectorAll('.flash-close').forEach(btn => {
+            btn.addEventListener('click', () => {
+                btn.parentElement.remove();
+            });
+        });
+
+        // Auto-hide flash messages after 5 seconds
+        document.querySelectorAll('.flash-message').forEach(msg => {
+            setTimeout(() => {
+                msg.style.opacity = '0';
+                msg.style.transform = 'translateX(30px)';
+                setTimeout(() => msg.remove(), 300);
+            }, 5000);
+        });
+
+        // User dropdown
+        const userBtn = document.querySelector('.user-btn');
+        const dropdownMenu = document.querySelector('.dropdown-menu');
+        if (userBtn && dropdownMenu) {
+            userBtn.addEventListener('click', () => {
+                dropdownMenu.classList.toggle('active');
+            });
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.user-dropdown')) {
+                    dropdownMenu.classList.remove('active');
+                }
+            });
+        }
+
+        // Offline indicator
+        window.addEventListener('online', () => {
+            document.getElementById('offlineIndicator').classList.remove('active');
+            if (window.showToast) {
+                showToast('חיבור לאינטרנט חזר!', 'success');
+            }
+            if (window.syncOfflineReports) {
+                window.syncOfflineReports();
+            }
+        });
+        window.addEventListener('offline', () => {
+            document.getElementById('offlineIndicator').classList.add('active');
+            if (window.showToast) {
+                showToast('מצב לא מקוון - הדוחות יישמרו מקומית', 'warning');
+            }
+        });
+        if (!navigator.onLine) {
+            document.getElementById('offlineIndicator').classList.add('active');
+        }
+
+        // Add smooth scroll behavior
+        document.documentElement.style.scrollBehavior = 'smooth';
+    </script>
+</body>
+</html>
