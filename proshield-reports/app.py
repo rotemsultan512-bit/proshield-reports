@@ -21,12 +21,30 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'יש להתחבר כדי לגשת לעמוד זה'
 
+
+def _is_production_runtime() -> bool:
+    """Detect production runtime (Render or any environment with DATABASE_URL).
+
+    We use this to auto-initialize the DB on startup so the first login doesn't
+    crash with missing tables.
+    """
+    return (
+        os.environ.get('RENDER', '').lower() == 'true'
+        or bool(os.environ.get('RENDER_SERVICE_ID'))
+        or bool(os.environ.get('DATABASE_URL'))
+    )
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
 def init_db():
-    """Initialize database and create default admin user"""
+    """Initialize database and create default admin user.
+
+    In production (Render), the SQLite DB may be created in /tmp and start empty.
+    Without this, the first login attempt can crash because tables don't exist.
+    """
     with app.app_context():
         db.create_all()
 
@@ -42,6 +60,12 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
             print("Default admin user created: rotem / proshield2025")
+
+
+# Auto-init DB on production startup (Gunicorn imports app.py but does not run __main__).
+# Safe to call multiple times because create_all() is idempotent.
+if _is_production_runtime():
+    init_db()
 
 def allowed_file(filename, file_type='image'):
     if file_type == 'image':
