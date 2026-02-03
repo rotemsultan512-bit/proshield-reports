@@ -3,11 +3,11 @@
  * PWA Offline Support & Caching
  */
 
-const CACHE_NAME = 'proshield-reports-v7';
-const STATIC_CACHE = 'proshield-static-v7';
-const DYNAMIC_CACHE = 'proshield-dynamic-v7';
+const CACHE_NAME = 'proshield-reports-v8';
+const STATIC_CACHE = 'proshield-static-v8';
+const DYNAMIC_CACHE = 'proshield-dynamic-v8';
 
-const ASSET_VERSION = '20260203-06';
+const ASSET_VERSION = '20260203-07';
 
 // Static assets to cache
 const STATIC_ASSETS = [
