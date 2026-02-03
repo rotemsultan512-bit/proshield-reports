@@ -1604,6 +1604,21 @@ a:hover {
     height: 18px;
 }
 
+.quantity-row {
+    display: grid;
+    grid-template-columns: 1fr 110px;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.quantity-unit {
+    padding: var(--space-2);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text);
+}
+
 /* Status Selector */
 .status-selector {
     display: grid;

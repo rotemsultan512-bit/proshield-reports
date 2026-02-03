@@ -68,6 +68,13 @@ def init_db():
             if 'protections_count' not in report_columns:
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
 
+            # Report products: quantity unit
+            product_columns = [
+                row[1] for row in db.session.execute(text('PRAGMA table_info(report_products)')).fetchall()
+            ]
+            if 'quantity_unit' not in product_columns:
+                db.session.execute(text('ALTER TABLE report_products ADD COLUMN quantity_unit VARCHAR(20)'))
+
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -324,6 +331,7 @@ def create_report():
 
         # Delivery / Installation extra fields
         customer_name = (request.form.get('customer_name') or '').strip()
+        report_datetime_raw = request.form.get('report_datetime')
 
         # installation_types is expected to be a JSON array string from the client
         installation_types_raw = request.form.get('installation_types')
@@ -336,9 +344,19 @@ def create_report():
         if not all([report_type, address, status]):
             return jsonify({'success': False, 'error': 'יש למלא את כל השדות הנדרשים'}), 400
 
-        # Delivery validation
-        if report_type == 'delivery' and not customer_name:
-            return jsonify({'success': False, 'error': 'יש להזין שם לקוח עבור דוח אספקה'}), 400
+        if not customer_name:
+            return jsonify({'success': False, 'error': 'יש להזין שם לקוח'}), 400
+
+        # Parse report date/time
+        report_timestamp = None
+        if report_datetime_raw:
+            try:
+                # Expecting "YYYY-MM-DDTHH:MM" from datetime-local
+                report_timestamp = datetime.fromisoformat(report_datetime_raw)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'תאריך/שעה לא תקין'}), 400
+        else:
+            return jsonify({'success': False, 'error': 'יש לבחור תאריך ושעה'}), 400
 
         # Installation extra validation
         protections_count = None
@@ -386,7 +404,7 @@ def create_report():
         report = Report(
             user_id=current_user.id,
             report_type=report_type,
-            customer_name=customer_name if report_type == 'delivery' else None,
+            customer_name=customer_name,
             installation_type=installation_type_display if report_type == 'installation' else None,
             installation_types=(
                 json.dumps(installation_types_list, ensure_ascii=False)
@@ -396,7 +414,8 @@ def create_report():
             protections_count=protections_count if report_type == 'installation' else None,
             address=address,
             status=status,
-            notes=notes
+            notes=notes,
+            timestamp=report_timestamp
         )
         db.session.add(report)
         db.session.flush()  # Get report ID
@@ -404,10 +423,15 @@ def create_report():
         # Add products
         for product in products_data:
             if product.get('name') and product.get('quantity'):
+                unit = product.get('unit') or 'unit'
+                if unit not in ['unit', 'meter']:
+                    unit = 'unit'
+
                 report_product = ReportProduct(
                     report_id=report.id,
                     product_name=product['name'],
-                    quantity=float(product['quantity'])
+                    quantity=float(product['quantity']),
+                    quantity_unit=unit
                 )
                 db.session.add(report_product)
 
@@ -659,7 +683,10 @@ def export_reports():
 
     # Data rows
     for report in reports:
-        products_str = ', '.join([f"{p.product_name} ({p.quantity})" for p in report.products])
+        products_str = ', '.join([
+            f"{p.product_name} ({p.quantity}{' מ׳' if p.quantity_unit == 'meter' else ' יח׳'})"
+            for p in report.products
+        ])
         ws.append([
             report.id,
             report.author.full_name if report.author else '',
@@ -718,10 +745,18 @@ def sync_offline_reports():
 
             installation_type_display = ', '.join([str(x) for x in offline_installation_types if x])
 
+            report_datetime_raw = report_data.get('report_datetime')
+            report_timestamp = None
+            if report_datetime_raw:
+                try:
+                    report_timestamp = datetime.fromisoformat(report_datetime_raw)
+                except ValueError:
+                    report_timestamp = None
+
             report = Report(
                 user_id=current_user.id,
                 report_type=offline_type,
-                customer_name=report_data.get('customer_name') if offline_type == 'delivery' else None,
+                customer_name=report_data.get('customer_name'),
                 installation_type=installation_type_display if offline_type == 'installation' else None,
                 installation_types=(
                     json.dumps(offline_installation_types, ensure_ascii=False)
@@ -732,7 +767,7 @@ def sync_offline_reports():
                 address=report_data.get('address'),
                 status=report_data.get('status'),
                 notes=report_data.get('notes', ''),
-                timestamp=datetime.fromisoformat(report_data.get('timestamp')) if report_data.get('timestamp') else datetime.utcnow()
+                timestamp=report_timestamp or datetime.fromisoformat(report_data.get('timestamp')) if report_data.get('timestamp') else datetime.utcnow()
             )
             db.session.add(report)
             db.session.flush()
@@ -740,10 +775,15 @@ def sync_offline_reports():
             # Add products
             for product in report_data.get('products', []):
                 if product.get('name') and product.get('quantity'):
+                    unit = product.get('unit') or 'unit'
+                    if unit not in ['unit', 'meter']:
+                        unit = 'unit'
+
                     report_product = ReportProduct(
                         report_id=report.id,
                         product_name=product['name'],
-                        quantity=float(product['quantity'])
+                        quantity=float(product['quantity']),
+                        quantity_unit=unit
                     )
                     db.session.add(report_product)
 

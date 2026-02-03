@@ -90,12 +90,14 @@ class ReportProduct(db.Model):
     report_id = db.Column(db.Integer, db.ForeignKey('reports.id'), nullable=False)
     product_name = db.Column(db.String(200), nullable=False)
     quantity = db.Column(db.Float, nullable=False)
+    quantity_unit = db.Column(db.String(20), default='unit')  # 'unit' or 'meter'
 
     def to_dict(self):
         return {
             'id': self.id,
             'product_name': self.product_name,
-            'quantity': self.quantity
+            'quantity': self.quantity,
+            'quantity_unit': self.quantity_unit
         }
 
     def __repr__(self):

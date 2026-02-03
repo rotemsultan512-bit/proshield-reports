@@ -44,12 +44,10 @@
                 <span class="detail-value">{{ report.address }}</span>
             </div>
 
-            {% if report.report_type == 'delivery' %}
             <div class="detail-row">
                 <span class="detail-label">👤 שם לקוח:</span>
                 <span class="detail-value">{{ report.customer_name or '-' }}</span>
             </div>
-            {% endif %}
 
             {% if report.report_type == 'installation' %}
             <div class="detail-row">
@@ -63,7 +61,7 @@
             {% endif %}
 
             <div class="detail-row">
-                <span class="detail-label">📅 תאריך:</span>
+                <span class="detail-label">📅 תאריך ושעה:</span>
                 <span class="detail-value">{{ report.timestamp.strftime('%d/%m/%Y %H:%M') }}</span>
             </div>
 
@@ -90,7 +88,7 @@
                         {% for product in report.products %}
                         <tr>
                             <td>{{ product.product_name }}</td>
-                            <td>{{ product.quantity }}</td>
+                            <td>{{ product.quantity }} {% if product.quantity_unit == 'meter' %}מ׳{% else %}יח׳{% endif %}</td>
                         </tr>
                         {% endfor %}
                     </tbody>

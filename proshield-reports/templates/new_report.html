@@ -90,7 +90,7 @@
             </div>
         </div>
 
-        <!-- Step 2: Address + Customer (Delivery) -->
+        <!-- Step 2: Address + Customer + Date/Time -->
         <div class="form-section">
             <h2>2. <span id="addressLabel">כתובת</span></h2>
             <div class="form-group">
@@ -100,6 +100,11 @@
             <div class="form-group" id="customerNameWrap" style="display:none;">
                 <label for="customer_name">שם לקוח <span class="required-badge">חובה</span></label>
                 <input type="text" id="customer_name" name="customer_name" placeholder="הזן שם לקוח...">
+            </div>
+
+            <div class="form-group" id="reportDateWrap" style="display:none;">
+                <label for="report_datetime">תאריך ושעה <span class="required-badge">חובה</span></label>
+                <input type="datetime-local" id="report_datetime" name="report_datetime">
             </div>
         </div>
 
@@ -117,7 +122,13 @@
                         <span class="product-name">{{ product }}</span>
                         <div class="product-quantity" style="display:none;">
                             <label id="quantityLabel">כמות:</label>
-                            <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input">
+                            <div class="quantity-row">
+                                <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input">
+                                <select class="quantity-unit">
+                                    <option value="unit">יחידה</option>
+                                    <option value="meter">מטר</option>
+                                </select>
+                            </div>
                         </div>
                     </label>
                     {% endfor %}
@@ -239,9 +250,11 @@
     const protectionsCountInput = document.getElementById('protections_count');
     let installationDetailsOpen = false;
 
-    // Delivery (extra field)
+    // Delivery / Installation extra fields
     const customerNameWrap = document.getElementById('customerNameWrap');
     const customerNameInput = document.getElementById('customer_name');
+    const reportDateWrap = document.getElementById('reportDateWrap');
+    const reportDateInput = document.getElementById('report_datetime');
 
     // Selected products data
     let selectedProducts = [];
@@ -276,9 +289,11 @@
                 notesStepLabel.textContent = '7. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שסופקה:');
 
-                // Delivery: customer name is mandatory
+                // Customer + Date/Time are mandatory
                 customerNameWrap.style.display = 'block';
                 customerNameInput.required = true;
+                reportDateWrap.style.display = 'block';
+                reportDateInput.required = true;
 
                 // Hide installation extra step
                 installationContinueWrap.style.display = 'none';
@@ -291,10 +306,11 @@
                 notesStepLabel.textContent = '6. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שהותקנה:');
 
-                // Installation: hide delivery-only field
-                customerNameWrap.style.display = 'none';
-                customerNameInput.value = '';
-                customerNameInput.required = false;
+                // Installation: show customer + date
+                customerNameWrap.style.display = 'block';
+                customerNameInput.required = true;
+                reportDateWrap.style.display = 'block';
+                reportDateInput.required = true;
 
                 // Clear delivery note error when switching to installation
                 deliveryNoteError.style.display = 'none';
@@ -365,9 +381,11 @@
             const quantityInput = item.querySelector('.quantity-input');
 
             if (checkbox.checked && quantityInput.value) {
+                const unitSelect = item.querySelector('.quantity-unit');
                 selectedProducts.push({
                     name: checkbox.value,
-                    quantity: parseFloat(quantityInput.value) || 0
+                    quantity: parseFloat(quantityInput.value) || 0,
+                    unit: unitSelect ? unitSelect.value : 'unit'
                 });
             }
         });
@@ -378,7 +396,7 @@
             selectedList.innerHTML = selectedProducts.map(p => `
                 <div class="selected-item">
                     <span class="item-name">${escapeHtml(p.name)}</span>
-                    <span class="item-qty">${p.quantity}</span>
+                    <span class="item-qty">${p.quantity} ${p.unit === 'meter' ? 'מ׳' : 'יח׳'}</span>
                 </div>
             `).join('');
         }
@@ -568,6 +586,7 @@
 
         // Delivery / Installation extra fields
         const customerName = customerNameInput ? customerNameInput.value.trim() : '';
+        const reportDateTime = reportDateInput ? reportDateInput.value : '';
         const installationTypes = reportType === 'installation' ? getSelectedInstallationTypes() : [];
         const protectionsCount = protectionsCountInput && protectionsCountInput.value
             ? parseInt(protectionsCountInput.value, 10)
@@ -583,10 +602,15 @@
             return;
         }
 
-        // Delivery validations
-        if (reportType === 'delivery' && !customerName) {
+        if (!customerName) {
             showToast('יש להזין שם לקוח', 'error');
             customerNameInput.focus();
+            return;
+        }
+
+        if (!reportDateTime) {
+            showToast('יש לבחור תאריך ושעה', 'error');
+            reportDateInput.focus();
             return;
         }
 
@@ -640,6 +664,7 @@
                 report_type: reportType,
                 address: address,
                 customer_name: customerName,
+                report_datetime: reportDateTime,
                 status: status,
                 notes: notes,
                 installation_types: installationTypes,
@@ -658,12 +683,9 @@
         formData.append('address', address);
         formData.append('status', status);
         formData.append('notes', notes);
+        formData.append('customer_name', customerName);
+        formData.append('report_datetime', reportDateTime);
         formData.append('products', JSON.stringify(selectedProducts));
-
-        // Delivery extra field
-        if (reportType === 'delivery') {
-            formData.append('customer_name', customerName);
-        }
 
         // Installation extra fields
         if (reportType === 'installation') {
@@ -704,6 +726,7 @@
                 report_type: reportType,
                 address: address,
                 customer_name: customerName,
+                report_datetime: reportDateTime,
                 status: status,
                 notes: notes,
                 installation_types: installationTypes,
