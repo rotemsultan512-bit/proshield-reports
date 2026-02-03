@@ -42,6 +42,11 @@ class Report(db.Model):
     status = db.Column(db.String(20), nullable=False)  # 'completed' or 'return_required'
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
+
+    # Installation extra fields (relevant when report_type == 'installation')
+    installation_type = db.Column(db.String(200))
+    protections_count = db.Column(db.Integer)
+
     synced = db.Column(db.Boolean, default=True)  # For offline support
 
     # Relationships
@@ -55,6 +60,8 @@ class Report(db.Model):
             'user_id': self.user_id,
             'user_name': self.author.full_name if self.author else '',
             'report_type': self.report_type,
+            'installation_type': self.installation_type,
+            'protections_count': self.protections_count,
             'address': self.address,
             'status': self.status,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,

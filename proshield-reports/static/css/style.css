@@ -21,14 +21,19 @@
     --brand-secondary-dark: #070B14;
     --brand-secondary-light: #111C33;
 
-    /* Semantic Colors */
-    --success: #10B981;
-    --success-light: #34D399;
-    --success-dark: #059669;
-    --warning: #F59E0B;
-    --warning-light: #FBBF24;
-    --danger: #EF4444;
-    --danger-light: #F87171;
+    /* Semantic Colors (Palette: Orange / Blue / White / Gray) */
+    --success: #3B82F6;          /* Blue */
+    --success-light: #60A5FA;
+    --success-dark: #2563EB;
+
+    --warning: #F7A832;          /* Orange (brand) */
+    --warning-light: #FFBE5C;
+    --warning-dark: #E8941C;
+
+    --danger: #F97316;           /* Orange - stronger */
+    --danger-light: #FDBA74;
+    --danger-dark: #EA580C;
+
     --info: #3B82F6;
     --info-light: #60A5FA;
 
@@ -274,14 +279,14 @@ a:hover {
 .btn-success {
     background: linear-gradient(135deg, var(--success) 0%, var(--success-dark) 100%);
     color: var(--white);
-    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
 }
 
-/* Danger Button */
+/* Danger Button (orange palette) */
 .btn-danger {
-    background: linear-gradient(135deg, var(--danger) 0%, #DC2626 100%);
+    background: linear-gradient(135deg, var(--danger) 0%, var(--danger-dark) 100%);
     color: var(--white);
-    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+    box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
 }
 
 /* Ghost Button */
@@ -404,10 +409,10 @@ a:hover {
 
 .form-error {
     padding: var(--space-4);
-    background-color: rgba(239, 68, 68, 0.1);
+    background-color: rgba(249, 115, 22, 0.1);
     color: var(--danger);
     border-radius: var(--radius-lg);
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(249, 115, 22, 0.2);
     margin-bottom: var(--space-4);
     display: none;
     font-weight: 500;
@@ -532,7 +537,7 @@ a:hover {
 }
 
 .nav-link.active {
-    /* Elegant neutral active state (no green) */
+    /* Elegant neutral active state */
     color: var(--text);
     background-color: rgba(17, 24, 39, 0.06);
 }
@@ -1161,22 +1166,22 @@ a:hover {
     opacity: 0.8;
 }
 
-.stat-card.gradient-green {
+.stat-card.gradient-installation {
     background: linear-gradient(135deg, var(--success) 0%, var(--success-dark) 100%);
     border: none;
 }
 
-.stat-card.gradient-green .stat-icon {
+.stat-card.gradient-installation .stat-icon {
     background: rgba(255, 255, 255, 0.2);
 }
 
-.stat-card.gradient-green .stat-value,
-.stat-card.gradient-green .stat-label {
+.stat-card.gradient-installation .stat-value,
+.stat-card.gradient-installation .stat-label {
     color: var(--white);
 }
 
 /* Outline variant for last card */
-.stat-card:not(.gradient-blue):not(.gradient-orange):not(.gradient-green) .stat-icon {
+.stat-card:not(.gradient-blue):not(.gradient-orange):not(.gradient-installation) .stat-icon {
     background: var(--gray-100);
 }
 
@@ -1544,6 +1549,26 @@ a:hover {
     font-size: var(--font-size-base);
 }
 
+/* Report Type - Continue + Installation Details */
+.report-type-actions {
+    margin-top: var(--space-4);
+    display: flex;
+    justify-content: center;
+}
+
+.installation-details {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--gray-50);
+}
+
+.installation-details h3 {
+    font-size: var(--font-size-base);
+    margin-bottom: var(--space-3);
+}
+
 /* Status Selector */
 .status-selector {
     display: grid;
@@ -1573,8 +1598,8 @@ a:hover {
 
 .status-option input:checked + .status-card.completed {
     border-color: var(--success);
-    background: rgba(16, 185, 129, 0.1);
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+    background: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .status-option input:checked + .status-card.return {
@@ -1861,8 +1886,8 @@ a:hover {
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-3);
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(249, 115, 22, 0.1);
+    border: 1px solid rgba(249, 115, 22, 0.3);
     border-radius: var(--radius-lg);
     color: var(--danger);
     margin-top: var(--space-4);
@@ -1879,8 +1904,8 @@ a:hover {
     align-items: center;
     gap: var(--space-4);
     padding: var(--space-4);
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
     border-radius: var(--radius-lg);
     margin-top: var(--space-4);
 }
@@ -1913,7 +1938,7 @@ a:hover {
 /* Delivery Note Display in View Report */
 .delivery-note-card {
     border: 2px solid var(--success);
-    background: rgba(16, 185, 129, 0.03);
+    background: rgba(59, 130, 246, 0.03);
 }
 
 .delivery-note-card h2 {
@@ -2753,15 +2778,15 @@ a:hover {
 }
 
 .flash-message.error {
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba(249, 115, 22, 0.1);
     color: var(--danger);
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(249, 115, 22, 0.2);
 }
 
 .flash-message.success {
-    background: rgba(16, 185, 129, 0.1);
+    background: rgba(59, 130, 246, 0.1);
     color: var(--success);
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .flash-close {

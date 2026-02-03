@@ -10,17 +10,17 @@
 
     <title>התחברות - Proshield Reports</title>
 
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/manifest.json?v=20260203-02">
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
-    <link rel="apple-touch-icon" href="/static/images/icon-192.png">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260203-02">
 </head>
 <body class="login-page">
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
                 <div class="login-logo">
-                    <img src="/static/images/proshield-logo.png" alt="Proshield">
+                    <img src="/static/images/proshield-icon.png" alt="Proshield">
                 </div>
                 <h1>Proshield Reports</h1>
                 <p>מערכת דיווח שטח</p>
@@ -189,11 +189,42 @@
             installPrompt.style.display = 'none';
         });
 
+        // Cache bust / force-update (runs once per version)
+        (async () => {
+            const APP_VERSION = '20260203-02';
+            const lastVersion = localStorage.getItem('proshield_app_version');
+            if (lastVersion !== APP_VERSION) {
+                localStorage.setItem('proshield_app_version', APP_VERSION);
+
+                try {
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        await Promise.all(regs.map(r => r.unregister()));
+                    }
+                    if ('caches' in window) {
+                        const keys = await caches.keys();
+                        await Promise.all(keys.map(k => caches.delete(k)));
+                    }
+                } catch (e) {
+                    console.log('Cache clear skipped:', e);
+                }
+
+                setTimeout(() => window.location.reload(), 150);
+            }
+        })();
+
         // Register Service Worker
         if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+            });
+
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('SW registered'))
+                    .then((reg) => {
+                        console.log('SW registered');
+                        reg.update();
+                    })
                     .catch(err => console.log('SW registration failed:', err));
             });
         }

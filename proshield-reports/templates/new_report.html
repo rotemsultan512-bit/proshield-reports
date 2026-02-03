@@ -29,6 +29,38 @@
                     </div>
                 </label>
             </div>
+
+            <!-- Continue button + Installation details (only for installation) -->
+            <div class="report-type-actions" id="installationContinueWrap" style="display:none;">
+                <button type="button" class="btn btn-primary" id="installationContinueBtn">
+                    המשך
+                </button>
+            </div>
+
+            <div class="installation-details" id="installationDetails" style="display:none;">
+                <h3>סוג התקנה</h3>
+
+                <div class="form-group">
+                    <label for="installation_type">בחר סוג התקנה</label>
+                    <select id="installation_type" name="installation_type">
+                        <option value="">בחר...</option>
+                        <option value="הגנת מדרגות">הגנת מדרגות</option>
+                        <option value="הגנת פרקט">הגנת פרקט</option>
+                        <option value="הגנת ריצוף">הגנת ריצוף</option>
+                        <option value="הגנת מטבח">הגנת מטבח</option>
+                        <option value="הגנת חלונות">הגנת חלונות</option>
+                        <option value="הגנה לדלת כניסה">הגנה לדלת כניסה</option>
+                        <option value="הגנה לדלת פנים">הגנה לדלת פנים</option>
+                        <option value="הגנה לריצוף חוץ">הגנה לריצוף חוץ</option>
+                        <option value="הגנה לנגרויות">הגנה לנגרויות</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="protections_count">מספר הגנות</label>
+                    <input type="number" id="protections_count" name="protections_count" min="1" step="1" placeholder="לדוגמה: 3">
+                </div>
+            </div>
         </div>
 
         <!-- Step 2: Address -->
@@ -167,6 +199,14 @@
     const deliveryNoteError = document.getElementById('deliveryNoteError');
     const submitBtn = document.getElementById('submitBtn');
 
+    // Installation (extra step)
+    const installationContinueWrap = document.getElementById('installationContinueWrap');
+    const installationContinueBtn = document.getElementById('installationContinueBtn');
+    const installationDetails = document.getElementById('installationDetails');
+    const installationTypeSelect = document.getElementById('installation_type');
+    const protectionsCountInput = document.getElementById('protections_count');
+    let installationDetailsOpen = false;
+
     // Selected products data
     let selectedProducts = [];
     let uploadedPhotos = [];
@@ -183,17 +223,47 @@
                 deliveryNoteSection.style.display = 'block';
                 notesStepLabel.textContent = '7. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שסופקה:');
+
+                // Hide installation extra step
+                installationContinueWrap.style.display = 'none';
+                installationDetails.style.display = 'none';
+                installationDetailsOpen = false;
+                installationTypeSelect.value = '';
+                protectionsCountInput.value = '';
+                installationTypeSelect.required = false;
+                protectionsCountInput.required = false;
             } else {
                 addressLabel.textContent = 'כתובת התקנה';
                 photosLabel.textContent = 'תמונות הפרויקט';
                 deliveryNoteSection.style.display = 'none';
                 notesStepLabel.textContent = '6. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שהותקנה:');
+
                 // Clear delivery note error when switching to installation
                 deliveryNoteError.style.display = 'none';
+
+                // Show continue button; details open only after clicking continue
+                installationContinueWrap.style.display = 'block';
+                installationDetails.style.display = 'none';
+                installationDetailsOpen = false;
+                installationTypeSelect.value = '';
+                protectionsCountInput.value = '';
+                installationTypeSelect.required = false;
+                protectionsCountInput.required = false;
             }
         });
     });
+
+    function openInstallationDetails() {
+        installationDetails.style.display = 'block';
+        installationDetailsOpen = true;
+        installationTypeSelect.required = true;
+        protectionsCountInput.required = true;
+        installationDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        installationTypeSelect.focus();
+    }
+
+    installationContinueBtn?.addEventListener('click', openInstallationDetails);
 
     function updateQuantityLabels(text) {
         document.querySelectorAll('.product-quantity label').forEach(label => {
@@ -440,6 +510,12 @@
         const status = document.querySelector('input[name="status"]:checked')?.value;
         const notes = document.getElementById('notes').value.trim();
 
+        // Installation extra fields
+        const installationType = installationTypeSelect ? installationTypeSelect.value : '';
+        const protectionsCount = protectionsCountInput && protectionsCountInput.value
+            ? parseInt(protectionsCountInput.value, 10)
+            : null;
+
         if (!reportType) {
             showToast('יש לבחור סוג דוח', 'error');
             return;
@@ -448,6 +524,25 @@
         if (!address) {
             showToast('יש להזין כתובת', 'error');
             return;
+        }
+
+        // Installation validations
+        if (reportType === 'installation') {
+            if (!installationDetailsOpen) {
+                openInstallationDetails();
+            }
+
+            if (!installationType) {
+                showToast('יש לבחור סוג התקנה', 'error');
+                installationTypeSelect.focus();
+                return;
+            }
+
+            if (!protectionsCount || protectionsCount < 1) {
+                showToast('יש להזין מספר הגנות', 'error');
+                protectionsCountInput.focus();
+                return;
+            }
         }
 
         if (selectedProducts.length === 0) {
@@ -481,6 +576,8 @@
                 address: address,
                 status: status,
                 notes: notes,
+                installation_type: installationType,
+                protections_count: protectionsCount,
                 products: selectedProducts,
                 timestamp: new Date().toISOString()
             });
@@ -496,6 +593,12 @@
         formData.append('status', status);
         formData.append('notes', notes);
         formData.append('products', JSON.stringify(selectedProducts));
+
+        // Installation extra fields
+        if (reportType === 'installation') {
+            formData.append('installation_type', installationType);
+            formData.append('protections_count', protectionsCount ?? '');
+        }
 
         // Add photos
         uploadedPhotos.forEach(photo => {
@@ -531,6 +634,8 @@
                 address: address,
                 status: status,
                 notes: notes,
+                installation_type: installationType,
+                protections_count: protectionsCount,
                 products: selectedProducts,
                 timestamp: new Date().toISOString()
             });

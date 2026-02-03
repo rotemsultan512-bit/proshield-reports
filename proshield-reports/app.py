@@ -48,6 +48,25 @@ def init_db():
     with app.app_context():
         db.create_all()
 
+        # Lightweight schema migrations (SQLite)
+        # NOTE: db.create_all() does not add new columns to existing tables.
+        from sqlalchemy import text
+        try:
+            report_columns = [
+                row[1] for row in db.session.execute(text('PRAGMA table_info(reports)')).fetchall()
+            ]
+
+            if 'installation_type' not in report_columns:
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(200)'))
+
+            if 'protections_count' not in report_columns:
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
+
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Schema migration skipped/failed: {e}")
+
         # Create default admin if not exists
         admin = User.query.filter_by(username='rotem').first()
         if not admin:
@@ -297,9 +316,27 @@ def create_report():
         notes = request.form.get('notes', '')
         products_json = request.form.get('products', '[]')
 
+        # Installation extra fields
+        installation_type = request.form.get('installation_type')
+        protections_count_raw = request.form.get('protections_count')
+
         # Validate required fields
         if not all([report_type, address, status]):
             return jsonify({'success': False, 'error': 'יש למלא את כל השדות הנדרשים'}), 400
+
+        # Installation extra validation
+        protections_count = None
+        if report_type == 'installation':
+            if not installation_type:
+                return jsonify({'success': False, 'error': 'יש לבחור סוג התקנה'}), 400
+
+            try:
+                protections_count = int(protections_count_raw) if protections_count_raw is not None else None
+            except (TypeError, ValueError):
+                protections_count = None
+
+            if not protections_count or protections_count < 1:
+                return jsonify({'success': False, 'error': 'יש להזין מספר הגנות תקין'}), 400
 
         # Parse products
         try:
@@ -314,6 +351,8 @@ def create_report():
         report = Report(
             user_id=current_user.id,
             report_type=report_type,
+            installation_type=installation_type if report_type == 'installation' else None,
+            protections_count=protections_count if report_type == 'installation' else None,
             address=address,
             status=status,
             notes=notes
@@ -562,7 +601,18 @@ def export_reports():
     ws.title = "דוחות"
 
     # Headers
-    headers = ['מזהה', 'משתמש', 'סוג דוח', 'כתובת', 'סטטוס', 'תאריך', 'מוצרים', 'הערות']
+    headers = [
+        'מזהה',
+        'משתמש',
+        'סוג דוח',
+        'סוג התקנה',
+        'מספר הגנות',
+        'כתובת',
+        'סטטוס',
+        'תאריך',
+        'מוצרים',
+        'הערות'
+    ]
     ws.append(headers)
 
     # Data rows
@@ -572,6 +622,8 @@ def export_reports():
             report.id,
             report.author.full_name if report.author else '',
             'אספקה' if report.report_type == 'delivery' else 'התקנה',
+            report.installation_type or '',
+            report.protections_count or '',
             report.address,
             'הושלם' if report.status == 'completed' else 'נדרש חזרה',
             report.timestamp.strftime('%d/%m/%Y %H:%M') if report.timestamp else '',
@@ -604,9 +656,18 @@ def sync_offline_reports():
     for report_data in offline_reports:
         try:
             # Create report from offline data
+            offline_type = report_data.get('report_type')
+            offline_protections_raw = report_data.get('protections_count')
+            try:
+                offline_protections_count = int(offline_protections_raw) if offline_protections_raw is not None else None
+            except (TypeError, ValueError):
+                offline_protections_count = None
+
             report = Report(
                 user_id=current_user.id,
-                report_type=report_data.get('report_type'),
+                report_type=offline_type,
+                installation_type=report_data.get('installation_type') if offline_type == 'installation' else None,
+                protections_count=offline_protections_count if offline_type == 'installation' else None,
                 address=report_data.get('address'),
                 status=report_data.get('status'),
                 notes=report_data.get('notes', ''),

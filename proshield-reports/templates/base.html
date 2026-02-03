@@ -11,14 +11,14 @@
     <title>{% block title %}Proshield Reports{% endblock %}</title>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/manifest.json?v=20260203-02">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
-    <link rel="apple-touch-icon" href="/static/images/icon-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260203-02">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -29,7 +29,7 @@
         <!-- Right Side (RTL): Logo + Brand -->
         <div class="navbar-brand">
             <a href="{{ url_for('dashboard') }}">
-                <img src="/static/images/proshield-logo.png" alt="Proshield" class="logo-img">
+                <img src="/static/images/proshield-icon.png" alt="Proshield" class="logo-img">
                 <span class="brand-text"><span class="brand-reports">Reports</span></span>
             </a>
         </div>
@@ -122,15 +122,49 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- Scripts -->
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=20260203-02"></script>
     {% block extra_js %}{% endblock %}
 
     <script>
+        // Cache bust / force-update (runs once per version)
+        (async () => {
+            const APP_VERSION = '20260203-02';
+            const lastVersion = localStorage.getItem('proshield_app_version');
+            if (lastVersion !== APP_VERSION) {
+                localStorage.setItem('proshield_app_version', APP_VERSION);
+
+                // Clear service worker + caches so UI updates immediately
+                try {
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        await Promise.all(regs.map(r => r.unregister()));
+                    }
+                    if ('caches' in window) {
+                        const keys = await caches.keys();
+                        await Promise.all(keys.map(k => caches.delete(k)));
+                    }
+                } catch (e) {
+                    console.log('Cache clear skipped:', e);
+                }
+
+                // Reload once with clean caches
+                setTimeout(() => window.location.reload(), 150);
+            }
+        })();
+
         // Register Service Worker
         if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                // When a new SW takes control, reload to pick up fresh assets
+                window.location.reload();
+            });
+
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('Service Worker registered'))
+                    .then((reg) => {
+                        console.log('Service Worker registered');
+                        reg.update();
+                    })
                     .catch(err => console.log('Service Worker registration failed:', err));
             });
         }

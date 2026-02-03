@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Generate PWA icons from the ProShield logo.
+"""Generate PWA icons from the ProShield app icon.
 
-This script reads the logo from:
-    static/images/proshield-logo.png
+This script reads the source image from:
+    static/images/proshield-icon.png
 and regenerates icon-*.png in static/images/.
 
 Notes:
 - Icons are generated with padding so they work better as "maskable".
-- Background is a solid dark color to match the current branding.
+- Background is solid white to match the app palette (no green).
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ def _load_logo(logo_path: str) -> Image.Image:
 
 
 def create_icon(size: int, logo: Image.Image, output_path: str) -> None:
-    """Create one square icon with padding and a dark background."""
-    bg_color = (0, 0, 0, 255)  # black
+    """Create one square icon with padding and a white background."""
+    bg_color = (255, 255, 255, 255)  # white
     canvas = Image.new("RGBA", (size, size), bg_color)
 
     # Keep some padding for maskable icons
@@ -55,9 +55,9 @@ def main() -> None:
     images_dir = os.path.join(base_dir, "static", "images")
     os.makedirs(images_dir, exist_ok=True)
 
-    logo_path = os.path.join(images_dir, "proshield-logo.png")
+    logo_path = os.path.join(images_dir, "proshield-icon.png")
     if not os.path.exists(logo_path):
-        raise FileNotFoundError(f"Logo not found: {logo_path}")
+        raise FileNotFoundError(f"Icon not found: {logo_path}")
 
     logo = _load_logo(logo_path)
 
