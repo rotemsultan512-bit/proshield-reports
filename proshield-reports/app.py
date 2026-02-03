@@ -48,34 +48,35 @@ def init_db():
     with app.app_context():
         db.create_all()
 
-        # Lightweight schema migrations (SQLite)
+        # Lightweight schema migrations (SQLite only)
         # NOTE: db.create_all() does not add new columns to existing tables.
         from sqlalchemy import text
         try:
-            report_columns = [
-                row[1] for row in db.session.execute(text('PRAGMA table_info(reports)')).fetchall()
-            ]
+            if db.engine.dialect.name == 'sqlite':
+                report_columns = [
+                    row[1] for row in db.session.execute(text('PRAGMA table_info(reports)')).fetchall()
+                ]
 
-            if 'customer_name' not in report_columns:
-                db.session.execute(text('ALTER TABLE reports ADD COLUMN customer_name VARCHAR(200)'))
+                if 'customer_name' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN customer_name VARCHAR(200)'))
 
-            if 'installation_type' not in report_columns:
-                db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(500)'))
+                if 'installation_type' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(500)'))
 
-            if 'installation_types' not in report_columns:
-                db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_types TEXT'))
+                if 'installation_types' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_types TEXT'))
 
-            if 'protections_count' not in report_columns:
-                db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
+                if 'protections_count' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
 
-            # Report products: quantity unit
-            product_columns = [
-                row[1] for row in db.session.execute(text('PRAGMA table_info(report_products)')).fetchall()
-            ]
-            if 'quantity_unit' not in product_columns:
-                db.session.execute(text('ALTER TABLE report_products ADD COLUMN quantity_unit VARCHAR(20)'))
+                # Report products: quantity unit
+                product_columns = [
+                    row[1] for row in db.session.execute(text('PRAGMA table_info(report_products)')).fetchall()
+                ]
+                if 'quantity_unit' not in product_columns:
+                    db.session.execute(text('ALTER TABLE report_products ADD COLUMN quantity_unit VARCHAR(20)'))
 
-            db.session.commit()
+                db.session.commit()
         except Exception as e:
             db.session.rollback()
             print(f"Schema migration skipped/failed: {e}")

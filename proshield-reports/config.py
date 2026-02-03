@@ -30,8 +30,13 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Upload settings
-    if _is_render():
-        UPLOAD_FOLDER = os.path.join('/tmp', 'proshield_uploads', 'reports')
+    # Prefer an explicit env var (useful for Render persistent disk mount)
+    _upload_override = os.environ.get('UPLOAD_FOLDER')
+    if _upload_override:
+        UPLOAD_FOLDER = _upload_override
+    elif _is_render():
+        # Render: point to persistent disk mount (configure in dashboard)
+        UPLOAD_FOLDER = os.path.join('/var/data', 'proshield_uploads', 'reports')
     else:
         UPLOAD_FOLDER = os.path.join(basedir, 'uploads', 'reports')
     MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
