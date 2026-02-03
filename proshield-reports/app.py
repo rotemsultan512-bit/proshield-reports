@@ -77,6 +77,15 @@ def init_db():
                     db.session.execute(text('ALTER TABLE report_products ADD COLUMN quantity_unit VARCHAR(20)'))
 
                 db.session.commit()
+
+            elif db.engine.dialect.name == 'postgresql':
+                # Postgres supports IF NOT EXISTS
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS customer_name VARCHAR(200)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_type VARCHAR(500)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_types TEXT'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS protections_count INTEGER'))
+                db.session.execute(text('ALTER TABLE report_products ADD COLUMN IF NOT EXISTS quantity_unit VARCHAR(20)'))
+                db.session.commit()
         except Exception as e:
             db.session.rollback()
             print(f"Schema migration skipped/failed: {e}")
@@ -634,32 +643,10 @@ def get_stats():
         'reports_per_user': reports_per_user
     })
 
-@app.route('/api/export')
-@login_required
-def export_reports():
-    """Export reports to Excel (admin only)"""
-    if not current_user.is_admin():
-        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
-
+def _export_reports_to_excel(reports, filename_prefix):
     from openpyxl import Workbook
     from io import BytesIO
     from flask import send_file
-
-    # Get filters
-    date_from = request.args.get('date_from')
-    date_to = request.args.get('date_to')
-    report_type = request.args.get('type')
-
-    query = Report.query
-
-    if date_from:
-        query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
-    if date_to:
-        query = query.filter(Report.timestamp <= datetime.fromisoformat(date_to + 'T23:59:59'))
-    if report_type:
-        query = query.filter(Report.report_type == report_type)
-
-    reports = query.order_by(Report.timestamp.desc()).all()
 
     # Create Excel workbook
     wb = Workbook()
@@ -711,8 +698,63 @@ def export_reports():
         output,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name=f'reports_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        download_name=f'{filename_prefix}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     )
+
+
+@app.route('/api/export')
+@login_required
+def export_reports():
+    """Export reports to Excel (admin only)"""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    # Get filters
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    report_type = request.args.get('type')
+
+    query = Report.query
+
+    if date_from:
+        query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
+    if date_to:
+        query = query.filter(Report.timestamp <= datetime.fromisoformat(date_to + 'T23:59:59'))
+    if report_type:
+        query = query.filter(Report.report_type == report_type)
+
+    reports = query.order_by(Report.timestamp.desc()).all()
+
+    return _export_reports_to_excel(reports, 'reports')
+
+
+@app.route('/api/export/mine')
+@login_required
+def export_my_reports():
+    """Export current user's reports (monthly by default)"""
+    # Get filters
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    report_type = request.args.get('type')
+
+    # Default: current month if no dates provided
+    if not date_from and not date_to:
+        now = datetime.utcnow()
+        date_from = f"{now.year}-{now.month:02d}-01"
+        date_to = f"{now.year}-{now.month:02d}-{now.day:02d}"
+
+    query = Report.query.filter_by(user_id=current_user.id)
+
+    if date_from:
+        query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
+    if date_to:
+        query = query.filter(Report.timestamp <= datetime.fromisoformat(date_to + 'T23:59:59'))
+    if report_type:
+        query = query.filter(Report.report_type == report_type)
+
+    reports = query.order_by(Report.timestamp.desc()).all()
+
+    return _export_reports_to_excel(reports, 'my_reports')
 
 @app.route('/api/sync', methods=['POST'])
 @login_required

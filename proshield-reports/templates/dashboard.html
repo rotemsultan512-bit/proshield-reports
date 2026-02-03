@@ -97,6 +97,9 @@
             <button class="btn btn-ghost btn-sm" id="clearFilters">
                 נקה פילטרים
             </button>
+            <button class="btn btn-secondary btn-sm" id="exportMineBtn">
+                הורד דוח חודשי שלי
+            </button>
         </div>
     </div>
 
@@ -175,6 +178,24 @@
         document.getElementById('filterSearch').value = '';
         currentPage = 1;
         loadReports();
+    });
+
+    // Export monthly report (current user)
+    document.getElementById('exportMineBtn').addEventListener('click', () => {
+        const type = document.getElementById('filterType').value;
+        const dateFrom = document.getElementById('filterDateFrom').value;
+        const dateTo = document.getElementById('filterDateTo').value;
+
+        const params = new URLSearchParams();
+        if (type) params.append('type', type);
+        if (dateFrom) params.append('date_from', dateFrom);
+        if (dateTo) params.append('date_to', dateTo);
+
+        const url = params.toString()
+            ? `/api/export/mine?${params.toString()}`
+            : '/api/export/mine';
+
+        window.location.href = url;
     });
 
     // Enter key in search

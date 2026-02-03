@@ -284,6 +284,16 @@
         installationDetailsOpen = false;
     }
 
+    function setDefaultReportDateTime() {
+        if (!reportDateInput) return;
+        if (reportDateInput.value) return;
+
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const localValue = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        reportDateInput.value = localValue;
+    }
+
     function getSelectedInstallationTypes() {
         return Array.from(document.querySelectorAll('input[name="installation_types"]:checked'))
             .map(cb => cb.value);
@@ -306,6 +316,7 @@
                 customerNameInput.required = true;
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
+                setDefaultReportDateTime();
 
                 // Hide installation extra step
                 installationContinueWrap.style.display = 'none';
@@ -323,6 +334,7 @@
                 customerNameInput.required = true;
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
+                setDefaultReportDateTime();
 
                 // Clear delivery note error when switching to installation
                 deliveryNoteError.style.display = 'none';
