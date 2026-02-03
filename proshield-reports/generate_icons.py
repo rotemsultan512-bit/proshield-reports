@@ -7,7 +7,7 @@ and regenerates icon-*.png in static/images/.
 
 Notes:
 - Icons are generated with padding so they work better as "maskable".
-- Background is solid white to match the app palette (no green).
+- Background is deep blue to match the app palette.
 """
 
 from __future__ import annotations
@@ -28,12 +28,12 @@ def _load_logo(logo_path: str) -> Image.Image:
 
 
 def create_icon(size: int, logo: Image.Image, output_path: str) -> None:
-    """Create one square icon with padding and a white background."""
-    bg_color = (255, 255, 255, 255)  # white
+    """Create one square icon with padding and a deep-blue background."""
+    bg_color = (11, 18, 32, 255)  # deep blue (#0B1220)
     canvas = Image.new("RGBA", (size, size), bg_color)
 
-    # Keep some padding for maskable icons
-    margin = int(size * 0.14)
+    # Keep more padding so the icon doesn't fill the whole square
+    margin = int(size * 0.22)
     max_w = size - (2 * margin)
     max_h = size - (2 * margin)
 
