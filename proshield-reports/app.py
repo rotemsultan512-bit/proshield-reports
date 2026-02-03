@@ -56,8 +56,14 @@ def init_db():
                 row[1] for row in db.session.execute(text('PRAGMA table_info(reports)')).fetchall()
             ]
 
+            if 'customer_name' not in report_columns:
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN customer_name VARCHAR(200)'))
+
             if 'installation_type' not in report_columns:
-                db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(200)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(500)'))
+
+            if 'installation_types' not in report_columns:
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_types TEXT'))
 
             if 'protections_count' not in report_columns:
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
@@ -316,19 +322,48 @@ def create_report():
         notes = request.form.get('notes', '')
         products_json = request.form.get('products', '[]')
 
-        # Installation extra fields
-        installation_type = request.form.get('installation_type')
+        # Delivery / Installation extra fields
+        customer_name = (request.form.get('customer_name') or '').strip()
+
+        # installation_types is expected to be a JSON array string from the client
+        installation_types_raw = request.form.get('installation_types')
+        # Backward compatibility (if a client still sends a single installation_type)
+        installation_type_single = request.form.get('installation_type')
+
         protections_count_raw = request.form.get('protections_count')
 
         # Validate required fields
         if not all([report_type, address, status]):
             return jsonify({'success': False, 'error': 'יש למלא את כל השדות הנדרשים'}), 400
 
+        # Delivery validation
+        if report_type == 'delivery' and not customer_name:
+            return jsonify({'success': False, 'error': 'יש להזין שם לקוח עבור דוח אספקה'}), 400
+
         # Installation extra validation
         protections_count = None
+        installation_types_list = []
+        installation_type_display = None
+
         if report_type == 'installation':
-            if not installation_type:
-                return jsonify({'success': False, 'error': 'יש לבחור סוג התקנה'}), 400
+            # Parse types
+            if installation_types_raw:
+                try:
+                    installation_types_list = json.loads(installation_types_raw)
+                    if not isinstance(installation_types_list, list):
+                        installation_types_list = []
+                except json.JSONDecodeError:
+                    installation_types_list = []
+
+            # Fallback to legacy single field
+            if not installation_types_list and installation_type_single:
+                installation_types_list = [installation_type_single]
+
+            # Validate
+            if not installation_types_list:
+                return jsonify({'success': False, 'error': 'יש לבחור לפחות סוג התקנה אחד'}), 400
+
+            installation_type_display = ', '.join([str(x) for x in installation_types_list if x])
 
             try:
                 protections_count = int(protections_count_raw) if protections_count_raw is not None else None
@@ -351,7 +386,13 @@ def create_report():
         report = Report(
             user_id=current_user.id,
             report_type=report_type,
-            installation_type=installation_type if report_type == 'installation' else None,
+            customer_name=customer_name if report_type == 'delivery' else None,
+            installation_type=installation_type_display if report_type == 'installation' else None,
+            installation_types=(
+                json.dumps(installation_types_list, ensure_ascii=False)
+                if report_type == 'installation'
+                else None
+            ),
             protections_count=protections_count if report_type == 'installation' else None,
             address=address,
             status=status,
@@ -605,7 +646,8 @@ def export_reports():
         'מזהה',
         'משתמש',
         'סוג דוח',
-        'סוג התקנה',
+        'שם לקוח',
+        'סוגי התקנה',
         'מספר הגנות',
         'כתובת',
         'סטטוס',
@@ -622,6 +664,7 @@ def export_reports():
             report.id,
             report.author.full_name if report.author else '',
             'אספקה' if report.report_type == 'delivery' else 'התקנה',
+            report.customer_name or '',
             report.installation_type or '',
             report.protections_count or '',
             report.address,
@@ -663,10 +706,28 @@ def sync_offline_reports():
             except (TypeError, ValueError):
                 offline_protections_count = None
 
+            offline_installation_types = report_data.get('installation_types')
+            if isinstance(offline_installation_types, str):
+                try:
+                    offline_installation_types = json.loads(offline_installation_types)
+                except json.JSONDecodeError:
+                    offline_installation_types = []
+
+            if not isinstance(offline_installation_types, list):
+                offline_installation_types = []
+
+            installation_type_display = ', '.join([str(x) for x in offline_installation_types if x])
+
             report = Report(
                 user_id=current_user.id,
                 report_type=offline_type,
-                installation_type=report_data.get('installation_type') if offline_type == 'installation' else None,
+                customer_name=report_data.get('customer_name') if offline_type == 'delivery' else None,
+                installation_type=installation_type_display if offline_type == 'installation' else None,
+                installation_types=(
+                    json.dumps(offline_installation_types, ensure_ascii=False)
+                    if offline_type == 'installation'
+                    else None
+                ),
                 protections_count=offline_protections_count if offline_type == 'installation' else None,
                 address=report_data.get('address'),
                 status=report_data.get('status'),

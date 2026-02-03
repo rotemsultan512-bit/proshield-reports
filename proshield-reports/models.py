@@ -38,13 +38,19 @@ class Report(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     report_type = db.Column(db.String(20), nullable=False)  # 'delivery' or 'installation'
+
+    # Delivery extra field (relevant when report_type == 'delivery')
+    customer_name = db.Column(db.String(200))
+
     address = db.Column(db.String(500), nullable=False)
     status = db.Column(db.String(20), nullable=False)  # 'completed' or 'return_required'
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
 
     # Installation extra fields (relevant when report_type == 'installation')
-    installation_type = db.Column(db.String(200))
+    # installation_type is kept for backward compatibility / display
+    installation_type = db.Column(db.String(500))
+    installation_types = db.Column(db.Text)  # JSON array string
     protections_count = db.Column(db.Integer)
 
     synced = db.Column(db.Boolean, default=True)  # For offline support
@@ -60,7 +66,9 @@ class Report(db.Model):
             'user_id': self.user_id,
             'user_name': self.author.full_name if self.author else '',
             'report_type': self.report_type,
+            'customer_name': self.customer_name,
             'installation_type': self.installation_type,
+            'installation_types': self.installation_types,
             'protections_count': self.protections_count,
             'address': self.address,
             'status': self.status,

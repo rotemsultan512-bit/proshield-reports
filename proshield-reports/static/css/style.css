@@ -1569,6 +1569,41 @@ a:hover {
     margin-bottom: var(--space-3);
 }
 
+.installation-types {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+}
+
+@media (min-width: 640px) {
+    .installation-types {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-3);
+    }
+}
+
+.install-type-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    cursor: pointer;
+    user-select: none;
+}
+
+.install-type-item:hover {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 3px rgba(247, 168, 50, 0.10);
+}
+
+.install-type-item input {
+    width: 18px;
+    height: 18px;
+}
+
 /* Status Selector */
 .status-selector {
     display: grid;

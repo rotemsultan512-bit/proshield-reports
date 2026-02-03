@@ -41,19 +41,46 @@
                 <h3>סוג התקנה</h3>
 
                 <div class="form-group">
-                    <label for="installation_type">בחר סוג התקנה</label>
-                    <select id="installation_type" name="installation_type">
-                        <option value="">בחר...</option>
-                        <option value="הגנת מדרגות">הגנת מדרגות</option>
-                        <option value="הגנת פרקט">הגנת פרקט</option>
-                        <option value="הגנת ריצוף">הגנת ריצוף</option>
-                        <option value="הגנת מטבח">הגנת מטבח</option>
-                        <option value="הגנת חלונות">הגנת חלונות</option>
-                        <option value="הגנה לדלת כניסה">הגנה לדלת כניסה</option>
-                        <option value="הגנה לדלת פנים">הגנה לדלת פנים</option>
-                        <option value="הגנה לריצוף חוץ">הגנה לריצוף חוץ</option>
-                        <option value="הגנה לנגרויות">הגנה לנגרויות</option>
-                    </select>
+                    <label>בחר סוג/ים של התקנה</label>
+                    <div class="installation-types" id="installationTypesWrap">
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנת מדרגות">
+                            <span>הגנת מדרגות</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנת פרקט">
+                            <span>הגנת פרקט</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנת ריצוף">
+                            <span>הגנת ריצוף</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנת מטבח">
+                            <span>הגנת מטבח</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנת חלונות">
+                            <span>הגנת חלונות</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנה לדלת כניסה">
+                            <span>הגנה לדלת כניסה</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנה לדלת פנים">
+                            <span>הגנה לדלת פנים</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנה לריצוף חוץ">
+                            <span>הגנה לריצוף חוץ</span>
+                        </label>
+                        <label class="install-type-item">
+                            <input type="checkbox" name="installation_types" value="הגנה לנגרויות">
+                            <span>הגנה לנגרויות</span>
+                        </label>
+                    </div>
+                    <small>ניתן לבחור יותר מסוג אחד</small>
                 </div>
 
                 <div class="form-group">
@@ -63,11 +90,16 @@
             </div>
         </div>
 
-        <!-- Step 2: Address -->
+        <!-- Step 2: Address + Customer (Delivery) -->
         <div class="form-section">
             <h2>2. <span id="addressLabel">כתובת</span></h2>
             <div class="form-group">
                 <input type="text" id="address" name="address" placeholder="הזן כתובת..." required>
+            </div>
+
+            <div class="form-group" id="customerNameWrap" style="display:none;">
+                <label for="customer_name">שם לקוח <span class="required-badge">חובה</span></label>
+                <input type="text" id="customer_name" name="customer_name" placeholder="הזן שם לקוח...">
             </div>
         </div>
 
@@ -203,14 +235,34 @@
     const installationContinueWrap = document.getElementById('installationContinueWrap');
     const installationContinueBtn = document.getElementById('installationContinueBtn');
     const installationDetails = document.getElementById('installationDetails');
-    const installationTypeSelect = document.getElementById('installation_type');
+    const installationTypesWrap = document.getElementById('installationTypesWrap');
     const protectionsCountInput = document.getElementById('protections_count');
     let installationDetailsOpen = false;
+
+    // Delivery (extra field)
+    const customerNameWrap = document.getElementById('customerNameWrap');
+    const customerNameInput = document.getElementById('customer_name');
 
     // Selected products data
     let selectedProducts = [];
     let uploadedPhotos = [];
     let uploadedDeliveryNote = null;
+
+    function resetInstallationFields() {
+        if (installationTypesWrap) {
+            installationTypesWrap.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+            });
+        }
+        protectionsCountInput.value = '';
+        protectionsCountInput.required = false;
+        installationDetailsOpen = false;
+    }
+
+    function getSelectedInstallationTypes() {
+        return Array.from(document.querySelectorAll('input[name="installation_types"]:checked'))
+            .map(cb => cb.value);
+    }
 
     // Report type change handler
     reportTypeInputs.forEach(input => {
@@ -224,14 +276,14 @@
                 notesStepLabel.textContent = '7. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שסופקה:');
 
+                // Delivery: customer name is mandatory
+                customerNameWrap.style.display = 'block';
+                customerNameInput.required = true;
+
                 // Hide installation extra step
                 installationContinueWrap.style.display = 'none';
                 installationDetails.style.display = 'none';
-                installationDetailsOpen = false;
-                installationTypeSelect.value = '';
-                protectionsCountInput.value = '';
-                installationTypeSelect.required = false;
-                protectionsCountInput.required = false;
+                resetInstallationFields();
             } else {
                 addressLabel.textContent = 'כתובת התקנה';
                 photosLabel.textContent = 'תמונות הפרויקט';
@@ -239,17 +291,18 @@
                 notesStepLabel.textContent = '6. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שהותקנה:');
 
+                // Installation: hide delivery-only field
+                customerNameWrap.style.display = 'none';
+                customerNameInput.value = '';
+                customerNameInput.required = false;
+
                 // Clear delivery note error when switching to installation
                 deliveryNoteError.style.display = 'none';
 
                 // Show continue button; details open only after clicking continue
                 installationContinueWrap.style.display = 'block';
                 installationDetails.style.display = 'none';
-                installationDetailsOpen = false;
-                installationTypeSelect.value = '';
-                protectionsCountInput.value = '';
-                installationTypeSelect.required = false;
-                protectionsCountInput.required = false;
+                resetInstallationFields();
             }
         });
     });
@@ -257,10 +310,13 @@
     function openInstallationDetails() {
         installationDetails.style.display = 'block';
         installationDetailsOpen = true;
-        installationTypeSelect.required = true;
         protectionsCountInput.required = true;
         installationDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        installationTypeSelect.focus();
+
+        const firstCheckbox = installationTypesWrap?.querySelector('input[type="checkbox"]');
+        if (firstCheckbox) {
+            firstCheckbox.focus();
+        }
     }
 
     installationContinueBtn?.addEventListener('click', openInstallationDetails);
@@ -510,8 +566,9 @@
         const status = document.querySelector('input[name="status"]:checked')?.value;
         const notes = document.getElementById('notes').value.trim();
 
-        // Installation extra fields
-        const installationType = installationTypeSelect ? installationTypeSelect.value : '';
+        // Delivery / Installation extra fields
+        const customerName = customerNameInput ? customerNameInput.value.trim() : '';
+        const installationTypes = reportType === 'installation' ? getSelectedInstallationTypes() : [];
         const protectionsCount = protectionsCountInput && protectionsCountInput.value
             ? parseInt(protectionsCountInput.value, 10)
             : null;
@@ -526,15 +583,23 @@
             return;
         }
 
+        // Delivery validations
+        if (reportType === 'delivery' && !customerName) {
+            showToast('יש להזין שם לקוח', 'error');
+            customerNameInput.focus();
+            return;
+        }
+
         // Installation validations
         if (reportType === 'installation') {
             if (!installationDetailsOpen) {
                 openInstallationDetails();
             }
 
-            if (!installationType) {
-                showToast('יש לבחור סוג התקנה', 'error');
-                installationTypeSelect.focus();
+            if (!installationTypes || installationTypes.length === 0) {
+                showToast('יש לבחור לפחות סוג התקנה אחד', 'error');
+                const firstCheckbox = installationTypesWrap?.querySelector('input[type="checkbox"]');
+                if (firstCheckbox) firstCheckbox.focus();
                 return;
             }
 
@@ -574,9 +639,10 @@
             saveOfflineReport({
                 report_type: reportType,
                 address: address,
+                customer_name: customerName,
                 status: status,
                 notes: notes,
-                installation_type: installationType,
+                installation_types: installationTypes,
                 protections_count: protectionsCount,
                 products: selectedProducts,
                 timestamp: new Date().toISOString()
@@ -594,9 +660,14 @@
         formData.append('notes', notes);
         formData.append('products', JSON.stringify(selectedProducts));
 
+        // Delivery extra field
+        if (reportType === 'delivery') {
+            formData.append('customer_name', customerName);
+        }
+
         // Installation extra fields
         if (reportType === 'installation') {
-            formData.append('installation_type', installationType);
+            formData.append('installation_types', JSON.stringify(installationTypes));
             formData.append('protections_count', protectionsCount ?? '');
         }
 
@@ -632,9 +703,10 @@
             saveOfflineReport({
                 report_type: reportType,
                 address: address,
+                customer_name: customerName,
                 status: status,
                 notes: notes,
-                installation_type: installationType,
+                installation_types: installationTypes,
                 protections_count: protectionsCount,
                 products: selectedProducts,
                 timestamp: new Date().toISOString()

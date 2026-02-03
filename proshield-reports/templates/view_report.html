@@ -44,9 +44,16 @@
                 <span class="detail-value">{{ report.address }}</span>
             </div>
 
+            {% if report.report_type == 'delivery' %}
+            <div class="detail-row">
+                <span class="detail-label">👤 שם לקוח:</span>
+                <span class="detail-value">{{ report.customer_name or '-' }}</span>
+            </div>
+            {% endif %}
+
             {% if report.report_type == 'installation' %}
             <div class="detail-row">
-                <span class="detail-label">🧩 סוג התקנה:</span>
+                <span class="detail-label">🧩 סוגי התקנה:</span>
                 <span class="detail-value">{{ report.installation_type or '-' }}</span>
             </div>
             <div class="detail-row">
