@@ -2724,6 +2724,47 @@ a:hover {
     background: var(--info);
 }
 
+/* Update Prompt */
+.update-prompt {
+    position: fixed;
+    bottom: calc(var(--space-6) + 70px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-xl);
+    padding: var(--space-4) var(--space-5);
+    z-index: 320;
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+}
+
+.update-text {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.update-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+@media (max-width: 640px) {
+    .update-prompt {
+        width: calc(100% - 2 * var(--space-4));
+        left: var(--space-4);
+        transform: none;
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+    .update-actions {
+        justify-content: center;
+    }
+}
+
 @keyframes toastIn {
     from {
         opacity: 0;

@@ -11,14 +11,14 @@
     <title>{% block title %}Proshield Reports{% endblock %}</title>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json?v=20260203-03">
+    <link rel="manifest" href="/manifest.json?v=20260203-04">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20260203-03">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260203-04">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -121,14 +121,23 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <!-- Update Prompt -->
+    <div class="update-prompt" id="updatePrompt" style="display:none;">
+        <div class="update-text">יש עדכון זמין לאפליקציה</div>
+        <div class="update-actions">
+            <button class="btn btn-sm btn-secondary" id="updateLater">מאוחר יותר</button>
+            <button class="btn btn-sm btn-primary" id="updateReload">עדכן עכשיו</button>
+        </div>
+    </div>
+
     <!-- Scripts -->
-    <script src="/static/js/app.js?v=20260203-03"></script>
+    <script src="/static/js/app.js?v=20260203-04"></script>
     {% block extra_js %}{% endblock %}
 
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20260203-03';
+            const APP_VERSION = '20260203-04';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);
@@ -152,6 +161,28 @@
             }
         })();
 
+        function showUpdatePrompt(registration) {
+            const promptEl = document.getElementById('updatePrompt');
+            const reloadBtn = document.getElementById('updateReload');
+            const laterBtn = document.getElementById('updateLater');
+
+            if (!promptEl || !reloadBtn || !laterBtn) return;
+
+            promptEl.style.display = 'flex';
+
+            reloadBtn.onclick = () => {
+                if (registration && registration.waiting) {
+                    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+                promptEl.style.display = 'none';
+                setTimeout(() => window.location.reload(), 100);
+            };
+
+            laterBtn.onclick = () => {
+                promptEl.style.display = 'none';
+            };
+        }
+
         // Register Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -164,6 +195,21 @@
                     .then((reg) => {
                         console.log('Service Worker registered');
                         reg.update();
+
+                        if (reg.waiting) {
+                            showUpdatePrompt(reg);
+                        }
+
+                        reg.addEventListener('updatefound', () => {
+                            const newWorker = reg.installing;
+                            if (!newWorker) return;
+
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    showUpdatePrompt(reg);
+                                }
+                            });
+                        });
                     })
                     .catch(err => console.log('Service Worker registration failed:', err));
             });

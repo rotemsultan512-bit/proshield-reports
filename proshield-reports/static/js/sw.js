@@ -3,11 +3,11 @@
  * PWA Offline Support & Caching
  */
 
-const CACHE_NAME = 'proshield-reports-v4';
-const STATIC_CACHE = 'proshield-static-v4';
-const DYNAMIC_CACHE = 'proshield-dynamic-v4';
+const CACHE_NAME = 'proshield-reports-v5';
+const STATIC_CACHE = 'proshield-static-v5';
+const DYNAMIC_CACHE = 'proshield-dynamic-v5';
 
-const ASSET_VERSION = '20260203-03';
+const ASSET_VERSION = '20260203-04';
 
 // Static assets to cache
 const STATIC_ASSETS = [
@@ -61,6 +61,13 @@ self.addEventListener('activate', (event) => {
             })
             .then(() => self.clients.claim())
     );
+});
+
+// Allow page to trigger immediate activation
+self.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
 });
 
 // Fetch event - serve from cache, fallback to network
