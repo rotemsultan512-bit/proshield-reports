@@ -2164,6 +2164,13 @@ a:hover {
     align-items: flex-start;
 }
 
+.detail-row-highlight {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
 .detail-label {
     min-width: 120px;
     color: var(--text-secondary);
