@@ -46,9 +46,13 @@
             </div>
 
             <div class="form-group" id="companyProjectWrap" style="display:none;">
-                <label for="company_project">חברת בניה/פרויקט <span class="optional-badge">אופציונלי</span></label>
-                <input type="text" id="company_project" name="company_project" list="companyProjectOptions" placeholder="בחר או הקלד...">
-                <datalist id="companyProjectOptions"></datalist>
+                <label>חברת בניה/פרויקט <span class="optional-badge">אופציונלי</span></label>
+                <input type="hidden" id="company_project" name="company_project">
+                <button type="button" class="dropdown-toggle" id="companyProjectToggle">בחר חברת בניה/פרויקט</button>
+                <div class="dropdown-content" id="companyProjectDropdown">
+                    <input type="text" id="companyProjectSearch" placeholder="חפש...">
+                    <div class="company-project-list" id="companyProjectList"></div>
+                </div>
             </div>
 
             <div class="form-group" id="reportDateWrap" style="display:none;">
@@ -284,7 +288,10 @@
     const customerNameInput = document.getElementById('customer_name');
     const companyProjectWrap = document.getElementById('companyProjectWrap');
     const companyProjectInput = document.getElementById('company_project');
-    const companyProjectOptions = document.getElementById('companyProjectOptions');
+    const companyProjectToggle = document.getElementById('companyProjectToggle');
+    const companyProjectDropdown = document.getElementById('companyProjectDropdown');
+    const companyProjectSearch = document.getElementById('companyProjectSearch');
+    const companyProjectList = document.getElementById('companyProjectList');
     const reportDateWrap = document.getElementById('reportDateWrap');
     const reportDateInput = document.getElementById('report_datetime');
 
@@ -311,11 +318,21 @@
 
     installationTypesToggle?.addEventListener('click', () => toggleDropdown(installationTypesWrap));
     productsToggle?.addEventListener('click', () => toggleDropdown(productsDropdown));
+    companyProjectToggle?.addEventListener('click', () => toggleDropdown(companyProjectDropdown));
 
     productSearch.addEventListener('focus', () => {
         if (productsDropdown) {
             productsDropdown.classList.add('open');
         }
+    });
+
+    companyProjectSearch?.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        const items = companyProjectList?.querySelectorAll('.company-project-item') || [];
+        items.forEach(item => {
+            const name = item.textContent.toLowerCase();
+            item.style.display = name.includes(term) ? 'block' : 'none';
+        });
     });
 
     function resetInstallationFields() {
@@ -337,19 +354,32 @@
     }
 
     async function loadCompanyProjects() {
-        if (!companyProjectOptions) return;
+        if (!companyProjectList) return;
 
         try {
             const response = await fetch('/api/company-projects');
             const data = await response.json();
             const projects = data.projects || [];
 
-            companyProjectOptions.innerHTML = projects.map(p => `
-                <option value="${escapeHtml(p.name)}"></option>
-            `).join('');
+            renderCompanyProjects(projects);
         } catch (error) {
             console.error('Error loading company/project list:', error);
         }
+    }
+
+    function renderCompanyProjects(projects) {
+        companyProjectList.innerHTML = projects.map(p => `
+            <button type="button" class="company-project-item" data-value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>
+        `).join('');
+
+        companyProjectList.querySelectorAll('.company-project-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const value = btn.dataset.value || '';
+                if (companyProjectInput) companyProjectInput.value = value;
+                if (companyProjectToggle) companyProjectToggle.textContent = value || 'בחר חברת בניה/פרויקט';
+                companyProjectDropdown?.classList.remove('open');
+            });
+        });
     }
 
     async function loadReportForEdit() {
@@ -371,6 +401,7 @@
             document.getElementById('address').value = data.address || '';
             if (customerNameInput) customerNameInput.value = data.customer_name || '';
             if (companyProjectInput) companyProjectInput.value = data.company_project || '';
+            if (companyProjectToggle) companyProjectToggle.textContent = data.company_project || 'בחר חברת בניה/פרויקט';
             if (reportDateInput && data.timestamp) {
                 const dt = new Date(data.timestamp);
                 const pad = (n) => String(n).padStart(2, '0');
@@ -471,7 +502,6 @@
 
                 // Show installation details before products
                 installationDetails.style.display = 'block';
-                installationTypesWrap?.classList.add('open');
                 resetInstallationFields();
             }
         });
