@@ -116,6 +116,11 @@ def init_db():
                 if 'quantity_unit' not in product_columns:
                     db.session.execute(text('ALTER TABLE report_products ADD COLUMN quantity_unit VARCHAR(20)'))
 
+                # Rename PP Tape -> לוח PP מ"מ 4 (existing data)
+                db.session.execute(text("UPDATE inventory_items SET product_name = 'לוח PP מ\"מ 4' WHERE product_name = 'PP Tape'"))
+                db.session.execute(text("UPDATE report_products SET product_name = 'לוח PP מ\"מ 4' WHERE product_name = 'PP Tape'"))
+                db.session.execute(text("UPDATE inventory_transactions SET product_name = 'לוח PP מ\"מ 4' WHERE product_name = 'PP Tape'"))
+
                 db.session.commit()
 
             elif db.engine.dialect.name == 'postgresql':
@@ -158,6 +163,10 @@ def init_db():
                         created_at TIMESTAMP
                     )
                 '''))
+
+                db.session.execute(text("UPDATE inventory_items SET product_name = 'לוח PP מ\"מ 4' WHERE product_name = 'PP Tape'"))
+                db.session.execute(text("UPDATE report_products SET product_name = 'לוח PP מ\"מ 4' WHERE product_name = 'PP Tape'"))
+                db.session.execute(text("UPDATE inventory_transactions SET product_name = 'לוח PP מ\"מ 4' WHERE product_name = 'PP Tape'"))
 
                 db.session.commit()
         except Exception as e:

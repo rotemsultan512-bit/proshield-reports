@@ -169,6 +169,9 @@ body {
     line-height: 1.6;
     color: var(--text);
     background-color: var(--bg);
+    background-image:
+        radial-gradient(circle at 10% 0%, rgba(14, 77, 131, 0.08), transparent 40%),
+        radial-gradient(circle at 90% 10%, rgba(249, 160, 34, 0.10), transparent 45%);
     direction: rtl;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
@@ -254,6 +257,11 @@ a:hover {
 
 .btn-primary:hover:not(:disabled) {
     box-shadow: 0 14px 34px rgba(247, 168, 50, 0.28);
+}
+
+.btn-new-report {
+    color: var(--white) !important;
+    font-weight: 800;
 }
 
 /* Secondary Button - Dark */
@@ -556,8 +564,8 @@ a:hover {
 /* Primary Nav Button (New Report) */
 .nav-btn-primary {
     background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-dark) 100%);
-    color: var(--brand-secondary) !important;
-    font-weight: 700;
+    color: var(--white) !important;
+    font-weight: 800;
     padding: var(--space-2) var(--space-5);
     border-radius: var(--radius-lg);
     box-shadow: 0 2px 8px rgba(247, 168, 50, 0.3);
@@ -785,6 +793,11 @@ a:hover {
     gap: var(--space-4);
     padding: var(--space-4) var(--space-4);
     margin-bottom: var(--space-4);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: blur(8px);
 }
 
 @media (min-width: 768px) {
@@ -1059,15 +1072,15 @@ a:hover {
 /* KPI Stats Cards */
 .stats-row {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
     gap: var(--space-3);
     margin-bottom: var(--space-5);
 }
 
 @media (min-width: 768px) {
     .stats-row {
-        grid-template-columns: repeat(5, 1fr);
-        gap: var(--space-4);
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
         margin-bottom: var(--space-6);
     }
 }
@@ -1108,6 +1121,7 @@ a:hover {
     border-radius: var(--radius-lg);
     font-size: 1.1rem;
     margin-bottom: var(--space-2);
+    color: var(--text);
 }
 
 @media (min-width: 768px) {
@@ -1119,7 +1133,7 @@ a:hover {
 }
 
 .stat-card .stat-value {
-    font-size: var(--font-size-xl);
+    font-size: var(--font-size-2xl);
     font-weight: 800;
     margin-bottom: var(--space-1);
     color: var(--text);
@@ -1127,20 +1141,14 @@ a:hover {
 
 @media (min-width: 768px) {
     .stat-card .stat-value {
-        font-size: var(--font-size-2xl);
+        font-size: var(--font-size-3xl);
     }
 }
 
 .stat-card .stat-label {
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-sm);
     color: var(--text-secondary);
-    font-weight: 500;
-}
-
-@media (min-width: 768px) {
-    .stat-card .stat-label {
-        font-size: var(--font-size-sm);
-    }
+    font-weight: 700;
 }
 
 /* Gradient Card Variants */
@@ -1151,6 +1159,7 @@ a:hover {
 
 .stat-card.gradient-blue .stat-icon {
     background: rgba(255, 255, 255, 0.15);
+    color: var(--white);
 }
 
 .stat-card.gradient-blue .stat-value,
@@ -1165,6 +1174,7 @@ a:hover {
 
 .stat-card.gradient-orange .stat-icon {
     background: rgba(255, 255, 255, 0.2);
+    color: var(--white);
 }
 
 .stat-card.gradient-orange .stat-value {
@@ -1183,6 +1193,7 @@ a:hover {
 
 .stat-card.gradient-installation .stat-icon {
     background: rgba(255, 255, 255, 0.2);
+    color: var(--white);
 }
 
 .stat-card.gradient-installation .stat-value,
@@ -1193,6 +1204,11 @@ a:hover {
 /* Outline variant for last card */
 .stat-card:not(.gradient-blue):not(.gradient-orange):not(.gradient-installation) .stat-icon {
     background: var(--gray-100);
+    color: var(--brand-secondary);
+}
+
+.stat-card:not(.gradient-blue):not(.gradient-orange):not(.gradient-installation) .stat-value {
+    color: var(--brand-secondary);
 }
 
 /* Filters Card */

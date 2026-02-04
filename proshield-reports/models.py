@@ -223,6 +223,7 @@ class InventoryTransaction(db.Model):
 PRODUCTS = [
     "Floorliner - Vapor Shield",
     "Floorliner - Original Shield",
+    "Floorliner- Parquet Shield",
     "Allprotect - White Shield",
     "Allprotect - Original",
     "Allprotect - Flex",
@@ -232,7 +233,7 @@ PRODUCTS = [
     "Allprotect - Flex cut to 17cm",
     "Allprotect - Flex cut to 20cm",
     "Allprotect - Flex cut to 25cm",
-    "PP Tape",
+    "לוח PP מ\"מ 4",
     "סרט דבק",
     "זווית פינה קשיחה",
     "פרופיל U מוקצף 18 מ\"מ",
