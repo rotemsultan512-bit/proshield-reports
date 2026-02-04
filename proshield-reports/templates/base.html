@@ -11,7 +11,7 @@
     <title>{% block title %}Proshield Reports{% endblock %}</title>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json?v=20260204-01">
+    <link rel="manifest" href="/manifest.json?v=20260204-02">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
@@ -137,7 +137,7 @@
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20260204-01';
+            const APP_VERSION = '20260204-02';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);
