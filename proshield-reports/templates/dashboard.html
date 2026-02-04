@@ -101,6 +101,12 @@
                 <label>חיפוש</label>
                 <input type="text" id="filterSearch" placeholder="חפש לפי כתובת, שם לקוח או חברת בניה/פרויקט...">
             </div>
+            {% if current_user.is_admin() %}
+            <div class="filter-group">
+                <label>שם עובד</label>
+                <input type="text" id="filterUserSearch" placeholder="חיפוש לפי שם עובד...">
+            </div>
+            {% endif %}
         </div>
         <div class="filters-actions">
             <button class="btn btn-primary btn-sm" id="applyFilters">
@@ -188,6 +194,9 @@
         document.getElementById('filterDateFrom').value = '';
         document.getElementById('filterDateTo').value = '';
         document.getElementById('filterSearch').value = '';
+        {% if current_user.is_admin() %}
+        document.getElementById('filterUserSearch').value = '';
+        {% endif %}
         currentPage = 1;
         loadReports();
     });
@@ -269,12 +278,18 @@
         const dateFrom = document.getElementById('filterDateFrom').value;
         const dateTo = document.getElementById('filterDateTo').value;
         const search = document.getElementById('filterSearch').value;
+        {% if current_user.is_admin() %}
+        const userSearch = document.getElementById('filterUserSearch').value;
+        {% endif %}
 
         if (type) params.append('type', type);
         if (status) params.append('status', status);
         if (dateFrom) params.append('date_from', dateFrom);
         if (dateTo) params.append('date_to', dateTo);
         if (search) params.append('search', search);
+        {% if current_user.is_admin() %}
+        if (userSearch) params.append('user_search', userSearch);
+        {% endif %}
 
         try {
             const response = await fetch(`/api/reports?${params}`);

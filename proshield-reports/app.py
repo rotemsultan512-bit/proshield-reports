@@ -392,6 +392,7 @@ def get_reports():
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     search = request.args.get('search')
+    user_search = request.args.get('user_search')
     user_id = request.args.get('user_id', type=int)
 
     # Base query
@@ -416,6 +417,12 @@ def get_reports():
             Report.address.ilike(f'%{search}%'),
             Report.customer_name.ilike(f'%{search}%'),
             Report.company_project.ilike(f'%{search}%')
+        ))
+
+    if user_search and current_user.is_admin():
+        query = query.join(User).filter(or_(
+            User.full_name.ilike(f'%{user_search}%'),
+            User.username.ilike(f'%{user_search}%')
         ))
 
     # Order and paginate
