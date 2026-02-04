@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#0B1220">
+    <meta name="theme-color" content="#0E4D83">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Proshield Reports">
@@ -11,14 +11,14 @@
     <title>{% block title %}Proshield Reports{% endblock %}</title>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json?v=20260203-07">
+    <link rel="manifest" href="/manifest.json?v=20260204-01">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20260203-07">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260204-01">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -131,13 +131,13 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/app.js?v=20260203-07"></script>
+    <script src="/static/js/app.js?v=20260204-01"></script>
     {% block extra_js %}{% endblock %}
 
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20260203-07';
+            const APP_VERSION = '20260204-01';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);

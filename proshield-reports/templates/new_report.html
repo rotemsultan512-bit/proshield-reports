@@ -30,11 +30,30 @@
                 </label>
             </div>
 
-            <!-- Continue button + Installation details (only for installation) -->
-            <div class="report-type-actions" id="installationContinueWrap" style="display:none;">
-                <button type="button" class="btn btn-primary" id="installationContinueBtn">
-                    המשך
-                </button>
+
+        </div>
+
+        <!-- Step 2: Address + Customer + Date/Time -->
+        <div class="form-section">
+            <h2>2. <span id="addressLabel">כתובת</span></h2>
+            <div class="form-group">
+                <input type="text" id="address" name="address" placeholder="הזן כתובת..." required>
+            </div>
+
+            <div class="form-group" id="customerNameWrap" style="display:none;">
+                <label for="customer_name">שם לקוח <span class="required-badge">חובה</span></label>
+                <input type="text" id="customer_name" name="customer_name" placeholder="הזן שם לקוח...">
+            </div>
+
+            <div class="form-group" id="companyProjectWrap" style="display:none;">
+                <label for="company_project">חברת בניה/פרויקט <span class="optional-badge">אופציונלי</span></label>
+                <input type="text" id="company_project" name="company_project" list="companyProjectOptions" placeholder="בחר או הקלד...">
+                <datalist id="companyProjectOptions"></datalist>
+            </div>
+
+            <div class="form-group" id="reportDateWrap" style="display:none;">
+                <label for="report_datetime">תאריך ושעה <span class="required-badge">חובה</span></label>
+                <input type="datetime-local" id="report_datetime" name="report_datetime">
             </div>
 
             <div class="installation-details" id="installationDetails" style="display:none;">
@@ -94,29 +113,6 @@
                     </div>
                     <small>ניתן לבחור יותר מסוג אחד</small>
                 </div>
-
-                <div class="form-group">
-                    <label for="protections_count">מספר הגנות</label>
-                    <input type="number" id="protections_count" name="protections_count" min="1" step="1" placeholder="לדוגמה: 3">
-                </div>
-            </div>
-        </div>
-
-        <!-- Step 2: Address + Customer + Date/Time -->
-        <div class="form-section">
-            <h2>2. <span id="addressLabel">כתובת</span></h2>
-            <div class="form-group">
-                <input type="text" id="address" name="address" placeholder="הזן כתובת..." required>
-            </div>
-
-            <div class="form-group" id="customerNameWrap" style="display:none;">
-                <label for="customer_name">שם לקוח <span class="required-badge">חובה</span></label>
-                <input type="text" id="customer_name" name="customer_name" placeholder="הזן שם לקוח...">
-            </div>
-
-            <div class="form-group" id="reportDateWrap" style="display:none;">
-                <label for="report_datetime">תאריך ושעה <span class="required-badge">חובה</span></label>
-                <input type="datetime-local" id="report_datetime" name="report_datetime">
             </div>
         </div>
 
@@ -181,9 +177,14 @@
             <div class="photos-upload">
                 <div class="upload-area" id="photosUploadArea">
                     <input type="file" id="photosInput" name="images" accept="image/*" multiple style="display:none;">
+                    <input type="file" id="photosCameraInput" accept="image/*" capture="environment" multiple style="display:none;">
                     <div class="upload-placeholder">
                         <span class="upload-icon">📷</span>
-                        <span class="upload-text">לחץ לצלם או להעלות תמונות</span>
+                        <span class="upload-text">צילום או העלאת תמונות</span>
+                        <div class="upload-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" id="photosCameraBtn">צלם תמונה</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="photosUploadBtn">העלה תמונות</button>
+                        </div>
                         <span class="upload-hint">עד 10 תמונות, 5MB כל אחת</span>
                     </div>
                 </div>
@@ -197,9 +198,14 @@
             <div class="delivery-note-upload">
                 <div class="upload-area" id="deliveryNoteUploadArea">
                     <input type="file" id="deliveryNoteInput" name="delivery_note" accept=".pdf,.jpg,.jpeg,.png,image/*" style="display:none;">
+                    <input type="file" id="deliveryNoteCameraInput" accept="image/*" capture="environment" style="display:none;">
                     <div class="upload-placeholder">
                         <span class="upload-icon">📄</span>
-                        <span class="upload-text">לחץ להעלות תעודת משלוח חתומה</span>
+                        <span class="upload-text">צילום או העלאת תעודת משלוח חתומה</span>
+                        <div class="upload-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" id="deliveryNoteCameraBtn">צלם מסמך</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="deliveryNoteUploadBtn">העלה קובץ</button>
+                        </div>
                         <span class="upload-hint">PDF או תמונה (jpg, png), עד 10MB</span>
                     </div>
                 </div>
@@ -245,26 +251,31 @@
     const productSearch = document.getElementById('productSearch');
     const productItems = document.querySelectorAll('.product-item');
     const photosInput = document.getElementById('photosInput');
+    const photosCameraInput = document.getElementById('photosCameraInput');
     const photosUploadArea = document.getElementById('photosUploadArea');
+    const photosUploadBtn = document.getElementById('photosUploadBtn');
+    const photosCameraBtn = document.getElementById('photosCameraBtn');
     const photosPreview = document.getElementById('photosPreview');
     const deliveryNoteInput = document.getElementById('deliveryNoteInput');
+    const deliveryNoteCameraInput = document.getElementById('deliveryNoteCameraInput');
     const deliveryNoteUploadArea = document.getElementById('deliveryNoteUploadArea');
+    const deliveryNoteUploadBtn = document.getElementById('deliveryNoteUploadBtn');
+    const deliveryNoteCameraBtn = document.getElementById('deliveryNoteCameraBtn');
     const deliveryNotePreview = document.getElementById('deliveryNotePreview');
     const deliveryNoteSection = document.getElementById('deliveryNoteSection');
     const deliveryNoteError = document.getElementById('deliveryNoteError');
     const submitBtn = document.getElementById('submitBtn');
 
-    // Installation (extra step)
-    const installationContinueWrap = document.getElementById('installationContinueWrap');
-    const installationContinueBtn = document.getElementById('installationContinueBtn');
+    // Installation details
     const installationDetails = document.getElementById('installationDetails');
     const installationTypesWrap = document.getElementById('installationTypesWrap');
-    const protectionsCountInput = document.getElementById('protections_count');
-    let installationDetailsOpen = false;
 
     // Delivery / Installation extra fields
     const customerNameWrap = document.getElementById('customerNameWrap');
     const customerNameInput = document.getElementById('customer_name');
+    const companyProjectWrap = document.getElementById('companyProjectWrap');
+    const companyProjectInput = document.getElementById('company_project');
+    const companyProjectOptions = document.getElementById('companyProjectOptions');
     const reportDateWrap = document.getElementById('reportDateWrap');
     const reportDateInput = document.getElementById('report_datetime');
 
@@ -273,15 +284,14 @@
     let uploadedPhotos = [];
     let uploadedDeliveryNote = null;
 
+    loadCompanyProjects();
+
     function resetInstallationFields() {
         if (installationTypesWrap) {
             installationTypesWrap.querySelectorAll('input[type="checkbox"]').forEach(cb => {
                 cb.checked = false;
             });
         }
-        protectionsCountInput.value = '';
-        protectionsCountInput.required = false;
-        installationDetailsOpen = false;
     }
 
     function setDefaultReportDateTime() {
@@ -292,6 +302,22 @@
         const pad = (n) => String(n).padStart(2, '0');
         const localValue = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
         reportDateInput.value = localValue;
+    }
+
+    async function loadCompanyProjects() {
+        if (!companyProjectOptions) return;
+
+        try {
+            const response = await fetch('/api/company-projects');
+            const data = await response.json();
+            const projects = data.projects || [];
+
+            companyProjectOptions.innerHTML = projects.map(p => `
+                <option value="${escapeHtml(p.name)}"></option>
+            `).join('');
+        } catch (error) {
+            console.error('Error loading company/project list:', error);
+        }
     }
 
     function getSelectedInstallationTypes() {
@@ -314,12 +340,12 @@
                 // Customer + Date/Time are mandatory
                 customerNameWrap.style.display = 'block';
                 customerNameInput.required = true;
+                companyProjectWrap.style.display = 'block';
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
                 setDefaultReportDateTime();
 
-                // Hide installation extra step
-                installationContinueWrap.style.display = 'none';
+                // Hide installation details
                 installationDetails.style.display = 'none';
                 resetInstallationFields();
             } else {
@@ -332,6 +358,7 @@
                 // Installation: show customer + date
                 customerNameWrap.style.display = 'block';
                 customerNameInput.required = true;
+                companyProjectWrap.style.display = 'block';
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
                 setDefaultReportDateTime();
@@ -339,27 +366,14 @@
                 // Clear delivery note error when switching to installation
                 deliveryNoteError.style.display = 'none';
 
-                // Show continue button; details open only after clicking continue
-                installationContinueWrap.style.display = 'block';
-                installationDetails.style.display = 'none';
+                // Show installation details before products
+                installationDetails.style.display = 'block';
                 resetInstallationFields();
             }
         });
     });
 
-    function openInstallationDetails() {
-        installationDetails.style.display = 'block';
-        installationDetailsOpen = true;
-        protectionsCountInput.required = true;
-        installationDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        const firstCheckbox = installationTypesWrap?.querySelector('input[type="checkbox"]');
-        if (firstCheckbox) {
-            firstCheckbox.focus();
-        }
-    }
-
-    installationContinueBtn?.addEventListener('click', openInstallationDetails);
 
     function updateQuantityLabels(text) {
         document.querySelectorAll('.product-quantity label').forEach(label => {
@@ -427,9 +441,15 @@
     }
 
     // Photos upload
-    photosUploadArea.addEventListener('click', () => photosInput.click());
+    photosUploadBtn?.addEventListener('click', () => photosInput.click());
+    photosCameraBtn?.addEventListener('click', () => photosCameraInput.click());
 
     photosInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        handlePhotosUpload(files);
+    });
+
+    photosCameraInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
         handlePhotosUpload(files);
     });
@@ -497,7 +517,8 @@
     }
 
     // Delivery Note upload
-    deliveryNoteUploadArea.addEventListener('click', () => deliveryNoteInput.click());
+    deliveryNoteUploadBtn?.addEventListener('click', () => deliveryNoteInput.click());
+    deliveryNoteCameraBtn?.addEventListener('click', () => deliveryNoteCameraInput.click());
 
     // Drag and drop for delivery note
     deliveryNoteUploadArea.addEventListener('dragover', (e) => {
@@ -519,6 +540,13 @@
     });
 
     deliveryNoteInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            handleDeliveryNoteUpload(file);
+        }
+    });
+
+    deliveryNoteCameraInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
             handleDeliveryNoteUpload(file);
@@ -612,9 +640,6 @@
         const customerName = customerNameInput ? customerNameInput.value.trim() : '';
         const reportDateTime = reportDateInput ? reportDateInput.value : '';
         const installationTypes = reportType === 'installation' ? getSelectedInstallationTypes() : [];
-        const protectionsCount = protectionsCountInput && protectionsCountInput.value
-            ? parseInt(protectionsCountInput.value, 10)
-            : null;
 
         if (!reportType) {
             showToast('יש לבחור סוג דוח', 'error');
@@ -640,20 +665,10 @@
 
         // Installation validations
         if (reportType === 'installation') {
-            if (!installationDetailsOpen) {
-                openInstallationDetails();
-            }
-
             if (!installationTypes || installationTypes.length === 0) {
                 showToast('יש לבחור לפחות סוג התקנה אחד', 'error');
                 const firstCheckbox = installationTypesWrap?.querySelector('input[type="checkbox"]');
                 if (firstCheckbox) firstCheckbox.focus();
-                return;
-            }
-
-            if (!protectionsCount || protectionsCount < 1) {
-                showToast('יש להזין מספר הגנות', 'error');
-                protectionsCountInput.focus();
                 return;
             }
         }
@@ -688,11 +703,11 @@
                 report_type: reportType,
                 address: address,
                 customer_name: customerName,
+                company_project: companyProjectInput ? companyProjectInput.value.trim() : '',
                 report_datetime: reportDateTime,
                 status: status,
                 notes: notes,
                 installation_types: installationTypes,
-                protections_count: protectionsCount,
                 products: selectedProducts,
                 timestamp: new Date().toISOString()
             });
@@ -708,13 +723,13 @@
         formData.append('status', status);
         formData.append('notes', notes);
         formData.append('customer_name', customerName);
+        formData.append('company_project', companyProjectInput ? companyProjectInput.value.trim() : '');
         formData.append('report_datetime', reportDateTime);
         formData.append('products', JSON.stringify(selectedProducts));
 
         // Installation extra fields
         if (reportType === 'installation') {
             formData.append('installation_types', JSON.stringify(installationTypes));
-            formData.append('protections_count', protectionsCount ?? '');
         }
 
         // Add photos
@@ -750,11 +765,11 @@
                 report_type: reportType,
                 address: address,
                 customer_name: customerName,
+                company_project: companyProjectInput ? companyProjectInput.value.trim() : '',
                 report_datetime: reportDateTime,
                 status: status,
                 notes: notes,
                 installation_types: installationTypes,
-                protections_count: protectionsCount,
                 products: selectedProducts,
                 timestamp: new Date().toISOString()
             });

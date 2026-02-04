@@ -12,30 +12,30 @@
    ========================================== */
 :root {
     /* Brand Colors - ProShield */
-    --brand-primary: #F7A832;          /* Orange accent */
-    --brand-primary-dark: #E8941C;
-    --brand-primary-light: #FFBE5C;
+    --brand-primary: #F9A022;          /* Orange accent */
+    --brand-primary-dark: #E1901D;
+    --brand-primary-light: #FFB84D;
 
-    /* Deep navy for a more modern, elegant look */
-    --brand-secondary: #0B1220;
-    --brand-secondary-dark: #070B14;
-    --brand-secondary-light: #111C33;
+    /* Logo Blue */
+    --brand-secondary: #0E4D83;
+    --brand-secondary-dark: #0B3A63;
+    --brand-secondary-light: #1562A5;
 
     /* Semantic Colors (Palette: Orange / Blue / White / Gray) */
-    --success: #3B82F6;          /* Blue */
-    --success-light: #60A5FA;
-    --success-dark: #2563EB;
+    --success: #0E4D83;          /* Blue */
+    --success-light: #3E77AB;
+    --success-dark: #0B3A63;
 
-    --warning: #F7A832;          /* Orange (brand) */
-    --warning-light: #FFBE5C;
-    --warning-dark: #E8941C;
+    --warning: #F9A022;          /* Orange (brand) */
+    --warning-light: #FFB84D;
+    --warning-dark: #E1901D;
 
     --danger: #F97316;           /* Orange - stronger */
     --danger-light: #FDBA74;
     --danger-dark: #EA580C;
 
-    --info: #3B82F6;
-    --info-light: #60A5FA;
+    --info: #0E4D83;
+    --info-light: #3E77AB;
 
     /* Neutrals */
     --white: #FFFFFF;
@@ -202,6 +202,11 @@ a {
 
 a:hover {
     color: var(--brand-primary-dark);
+}
+
+.muted {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
 }
 
 /* ==========================================
@@ -1934,6 +1939,23 @@ a:hover {
     font-weight: 600;
 }
 
+.optional-badge {
+    background: var(--gray-200);
+    color: var(--gray-700);
+    font-size: var(--font-size-xs);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
+    margin-right: var(--space-2);
+    font-weight: 600;
+}
+
+.upload-actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
 .delivery-note-section {
     border: 2px dashed var(--brand-primary);
     background: rgba(247, 168, 50, 0.03);
@@ -2507,6 +2529,98 @@ a:hover {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+}
+
+.company-projects-controls {
+    display: flex;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+}
+
+.company-projects-controls input {
+    flex: 1;
+}
+
+.company-projects-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.company-project-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+}
+
+.company-project-name {
+    font-weight: 600;
+}
+
+.inventory-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.inventory-filters {
+    margin-bottom: var(--space-3);
+}
+
+.inventory-table {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.inventory-header,
+.inventory-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+}
+
+.inventory-header {
+    background: var(--gray-100);
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+}
+
+.inventory-row {
+    background: var(--gray-50);
+    border: 1px solid var(--border-light);
+}
+
+.inventory-input {
+    max-width: 140px;
+}
+
+.inventory-name {
+    font-weight: 600;
+}
+
+.inventory-updated {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+    .inventory-header,
+    .inventory-row {
+        grid-template-columns: 1fr;
+        gap: var(--space-2);
+    }
+
+    .inventory-input {
+        max-width: 100%;
+    }
 }
 
 .user-item {

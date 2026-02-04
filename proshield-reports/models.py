@@ -42,6 +42,9 @@ class Report(db.Model):
     # Delivery extra field (relevant when report_type == 'delivery')
     customer_name = db.Column(db.String(200))
 
+    # Optional: Company / Project name
+    company_project = db.Column(db.String(200))
+
     address = db.Column(db.String(500), nullable=False)
     status = db.Column(db.String(20), nullable=False)  # 'completed' or 'return_required'
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
@@ -67,6 +70,7 @@ class Report(db.Model):
             'user_name': self.author.full_name if self.author else '',
             'report_type': self.report_type,
             'customer_name': self.customer_name,
+            'company_project': self.company_project,
             'installation_type': self.installation_type,
             'installation_types': self.installation_types,
             'protections_count': self.protections_count,
@@ -142,6 +146,77 @@ class ReportDocument(db.Model):
 
     def __repr__(self):
         return f'<ReportDocument {self.document_path}>'
+
+
+class CompanyProject(db.Model):
+    __tablename__ = 'company_projects'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'is_active': self.is_active
+        }
+
+    def __repr__(self):
+        return f'<CompanyProject {self.name}>'
+
+
+class InventoryItem(db.Model):
+    __tablename__ = 'inventory_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_name = db.Column(db.String(200), unique=True, nullable=False)
+    quantity_unit = db.Column(db.Float, default=0)   # יחידה
+    quantity_meter = db.Column(db.Float, default=0)  # מטר
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_name': self.product_name,
+            'quantity_unit': self.quantity_unit,
+            'quantity_meter': self.quantity_meter,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    def __repr__(self):
+        return f'<InventoryItem {self.product_name}>'
+
+
+class InventoryTransaction(db.Model):
+    __tablename__ = 'inventory_transactions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_name = db.Column(db.String(200), nullable=False)
+    change_type = db.Column(db.String(50), nullable=False)  # 'report' or 'adjustment'
+    quantity = db.Column(db.Float, nullable=False)
+    unit = db.Column(db.String(20), nullable=False)  # 'unit' or 'meter'
+    report_id = db.Column(db.Integer, db.ForeignKey('reports.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    notes = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_name': self.product_name,
+            'change_type': self.change_type,
+            'quantity': self.quantity,
+            'unit': self.unit,
+            'report_id': self.report_id,
+            'user_id': self.user_id,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<InventoryTransaction {self.product_name} {self.quantity} {self.unit}>'
 
 
 # Product list constant

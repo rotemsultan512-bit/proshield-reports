@@ -49,14 +49,15 @@
                 <span class="detail-value">{{ report.customer_name or '-' }}</span>
             </div>
 
+            <div class="detail-row">
+                <span class="detail-label">🏗️ חברת בניה/פרויקט:</span>
+                <span class="detail-value">{{ report.company_project or '-' }}</span>
+            </div>
+
             {% if report.report_type == 'installation' %}
             <div class="detail-row">
                 <span class="detail-label">🧩 סוגי התקנה:</span>
                 <span class="detail-value">{{ report.installation_type or '-' }}</span>
-            </div>
-            <div class="detail-row">
-                <span class="detail-label">🔢 מספר הגנות:</span>
-                <span class="detail-value">{{ report.protections_count or '-' }}</span>
             </div>
             {% endif %}
 

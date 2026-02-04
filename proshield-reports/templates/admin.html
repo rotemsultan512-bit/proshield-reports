@@ -42,6 +42,8 @@
         <button class="tab-btn active" data-tab="users">👥 ניהול משתמשים</button>
         <button class="tab-btn" data-tab="export">📥 יצוא נתונים</button>
         <button class="tab-btn" data-tab="reports-per-user">📊 דוחות לפי משתמש</button>
+        <button class="tab-btn" data-tab="company-projects">🏗️ חברות בניה/פרויקטים</button>
+        <button class="tab-btn" data-tab="inventory">📦 מלאי מחסן</button>
     </div>
 
     <!-- Users Tab -->
@@ -91,6 +93,43 @@
             <h2>📊 דוחות לפי משתמש</h2>
             <div class="user-stats-list" id="userStatsList">
                 <!-- User stats will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Company / Project Tab -->
+    <div class="tab-content" id="company-projectsTab">
+        <div class="admin-card">
+            <div class="card-header">
+                <h2>🏗️ חברות בניה/פרויקטים</h2>
+            </div>
+            <div class="company-projects-controls">
+                <input type="text" id="companyProjectName" placeholder="הזן שם חדש...">
+                <button class="btn btn-primary btn-sm" id="addCompanyProjectBtn">➕ הוסף</button>
+            </div>
+            <div class="company-projects-list" id="companyProjectsList">
+                <!-- List will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Inventory Tab -->
+    <div class="tab-content" id="inventoryTab">
+        <div class="admin-card">
+            <div class="card-header">
+                <h2>📦 מלאי מחסן</h2>
+                <div class="inventory-actions">
+                    <button class="btn btn-secondary btn-sm" id="exportInventoryBtn">📥 יצוא מלאי</button>
+                    <button class="btn btn-primary btn-sm" id="saveInventoryBtn">💾 שמור שינויים</button>
+                </div>
+            </div>
+
+            <div class="inventory-filters">
+                <input type="text" id="inventorySearch" placeholder="חפש מוצר...">
+            </div>
+
+            <div class="inventory-table" id="inventoryTable">
+                <!-- Inventory rows will be loaded here -->
             </div>
         </div>
     </div>
@@ -165,6 +204,8 @@
     document.addEventListener('DOMContentLoaded', () => {
         loadStats();
         loadUsers();
+        loadCompanyProjects();
+        loadInventory();
     });
 
     // Load statistics
@@ -234,6 +275,168 @@
             });
         });
     }
+
+    async function loadCompanyProjects() {
+        try {
+            const response = await fetch('/api/company-projects?include_inactive=false');
+            const data = await response.json();
+            renderCompanyProjects(data.projects || []);
+        } catch (error) {
+            console.error('Error loading company/projects:', error);
+        }
+    }
+
+    function renderCompanyProjects(projects) {
+        const container = document.getElementById('companyProjectsList');
+        if (!container) return;
+
+        if (projects.length === 0) {
+            container.innerHTML = '<p class="muted">אין רשימה פעילה כרגע</p>';
+            return;
+        }
+
+        container.innerHTML = projects.map(p => `
+            <div class="company-project-item">
+                <span class="company-project-name">${escapeHtml(p.name)}</span>
+                <button class="btn btn-ghost btn-sm delete-company-project" data-id="${p.id}">🗑️</button>
+            </div>
+        `).join('');
+
+        container.querySelectorAll('.delete-company-project').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.dataset.id;
+                if (!id) return;
+
+                try {
+                    const response = await fetch(`/api/company-projects/${id}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    if (data.success) {
+                        showToast('נמחק בהצלחה', 'success');
+                        loadCompanyProjects();
+                    } else {
+                        showToast(data.error || 'שגיאה במחיקה', 'error');
+                    }
+                } catch (error) {
+                    showToast('שגיאת תקשורת', 'error');
+                }
+            });
+        });
+    }
+
+    document.getElementById('addCompanyProjectBtn')?.addEventListener('click', async () => {
+        const input = document.getElementById('companyProjectName');
+        const name = input.value.trim();
+        if (!name) {
+            showToast('יש להזין שם', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/company-projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('נוסף בהצלחה', 'success');
+                input.value = '';
+                loadCompanyProjects();
+            } else {
+                showToast(data.error || 'שגיאה בהוספה', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    // Inventory
+    let inventoryItems = [];
+
+    async function loadInventory() {
+        try {
+            const response = await fetch('/api/inventory');
+            const data = await response.json();
+            inventoryItems = data.items || [];
+            renderInventory(inventoryItems);
+        } catch (error) {
+            console.error('Error loading inventory:', error);
+        }
+    }
+
+    function renderInventory(items) {
+        const container = document.getElementById('inventoryTable');
+        if (!container) return;
+
+        if (items.length === 0) {
+            container.innerHTML = '<p class="muted">אין נתוני מלאי</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="inventory-header">
+                <span>מוצר</span>
+                <span>יחידה</span>
+                <span>מטר</span>
+                <span>עודכן</span>
+            </div>
+            ${items.map(item => `
+                <div class="inventory-row" data-name="${escapeHtml(item.product_name)}">
+                    <span class="inventory-name">${escapeHtml(item.product_name)}</span>
+                    <input type="number" step="0.1" class="inventory-input" data-unit="unit" value="${item.quantity_unit ?? 0}">
+                    <input type="number" step="0.1" class="inventory-input" data-unit="meter" value="${item.quantity_meter ?? 0}">
+                    <span class="inventory-updated">${item.updated_at ? formatDate(item.updated_at) : '-'}</span>
+                </div>
+            `).join('')}
+        `;
+    }
+
+    document.getElementById('inventorySearch')?.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        const filtered = inventoryItems.filter(i => i.product_name.toLowerCase().includes(term));
+        renderInventory(filtered);
+    });
+
+    document.getElementById('saveInventoryBtn')?.addEventListener('click', async () => {
+        const rows = document.querySelectorAll('.inventory-row');
+        const payload = [];
+
+        rows.forEach(row => {
+            const name = row.dataset.name;
+            const inputs = row.querySelectorAll('.inventory-input');
+            const unitInput = Array.from(inputs).find(i => i.dataset.unit === 'unit');
+            const meterInput = Array.from(inputs).find(i => i.dataset.unit === 'meter');
+
+            payload.push({
+                product_name: name,
+                quantity_unit: unitInput ? unitInput.value : 0,
+                quantity_meter: meterInput ? meterInput.value : 0
+            });
+        });
+
+        try {
+            const response = await fetch('/api/inventory/adjust', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: payload })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('המלאי עודכן בהצלחה', 'success');
+                loadInventory();
+            } else {
+                showToast(data.error || 'שגיאה בעדכון מלאי', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    document.getElementById('exportInventoryBtn')?.addEventListener('click', () => {
+        window.location.href = '/api/inventory/export';
+    });
 
     // Add user modal
     document.getElementById('addUserBtn').addEventListener('click', () => {

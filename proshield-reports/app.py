@@ -4,12 +4,13 @@ from werkzeug.utils import secure_filename
 from PIL import Image
 from datetime import datetime
 from io import BytesIO
+from sqlalchemy import or_
 import os
 import uuid
 import json
 
 from config import Config
-from models import db, User, Report, ReportProduct, ReportImage, ReportDocument, PRODUCTS
+from models import db, User, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -60,6 +61,9 @@ def init_db():
                 if 'customer_name' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN customer_name VARCHAR(200)'))
 
+                if 'company_project' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN company_project VARCHAR(200)'))
+
                 if 'installation_type' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(500)'))
 
@@ -68,6 +72,42 @@ def init_db():
 
                 if 'protections_count' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
+
+                # Company/Project list table
+                db.session.execute(text('''
+                    CREATE TABLE IF NOT EXISTS company_projects (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name VARCHAR(200) UNIQUE NOT NULL,
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at DATETIME
+                    )
+                '''))
+
+                # Inventory tables
+                db.session.execute(text('''
+                    CREATE TABLE IF NOT EXISTS inventory_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        product_name VARCHAR(200) UNIQUE NOT NULL,
+                        quantity_unit FLOAT DEFAULT 0,
+                        quantity_meter FLOAT DEFAULT 0,
+                        updated_at DATETIME
+                    )
+                '''))
+                db.session.execute(text('''
+                    CREATE TABLE IF NOT EXISTS inventory_transactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        product_name VARCHAR(200) NOT NULL,
+                        change_type VARCHAR(50) NOT NULL,
+                        quantity FLOAT NOT NULL,
+                        unit VARCHAR(20) NOT NULL,
+                        report_id INTEGER,
+                        user_id INTEGER,
+                        notes VARCHAR(500),
+                        created_at DATETIME,
+                        FOREIGN KEY(report_id) REFERENCES reports(id),
+                        FOREIGN KEY(user_id) REFERENCES users(id)
+                    )
+                '''))
 
                 # Report products: quantity unit
                 product_columns = [
@@ -81,14 +121,55 @@ def init_db():
             elif db.engine.dialect.name == 'postgresql':
                 # Postgres supports IF NOT EXISTS
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS customer_name VARCHAR(200)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS company_project VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_type VARCHAR(500)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_types TEXT'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS protections_count INTEGER'))
                 db.session.execute(text('ALTER TABLE report_products ADD COLUMN IF NOT EXISTS quantity_unit VARCHAR(20)'))
+
+                db.session.execute(text('''
+                    CREATE TABLE IF NOT EXISTS company_projects (
+                        id SERIAL PRIMARY KEY,
+                        name VARCHAR(200) UNIQUE NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP
+                    )
+                '''))
+
+                db.session.execute(text('''
+                    CREATE TABLE IF NOT EXISTS inventory_items (
+                        id SERIAL PRIMARY KEY,
+                        product_name VARCHAR(200) UNIQUE NOT NULL,
+                        quantity_unit DOUBLE PRECISION DEFAULT 0,
+                        quantity_meter DOUBLE PRECISION DEFAULT 0,
+                        updated_at TIMESTAMP
+                    )
+                '''))
+                db.session.execute(text('''
+                    CREATE TABLE IF NOT EXISTS inventory_transactions (
+                        id SERIAL PRIMARY KEY,
+                        product_name VARCHAR(200) NOT NULL,
+                        change_type VARCHAR(50) NOT NULL,
+                        quantity DOUBLE PRECISION NOT NULL,
+                        unit VARCHAR(20) NOT NULL,
+                        report_id INTEGER,
+                        user_id INTEGER,
+                        notes VARCHAR(500),
+                        created_at TIMESTAMP
+                    )
+                '''))
+
                 db.session.commit()
         except Exception as e:
             db.session.rollback()
             print(f"Schema migration skipped/failed: {e}")
+
+        # Ensure inventory items exist for all products
+        existing_items = {i.product_name for i in InventoryItem.query.all()}
+        for product in PRODUCTS:
+            if product not in existing_items:
+                db.session.add(InventoryItem(product_name=product, quantity_unit=0, quantity_meter=0))
+        db.session.commit()
 
         # Create default admin if not exists
         admin = User.query.filter_by(username='rotem').first()
@@ -173,6 +254,34 @@ def save_file(file, report_id, file_type='image'):
     else:
         subdir = 'documents'
     return os.path.join(str(report_id), subdir, filename)
+
+
+def apply_inventory_change(product_name, quantity, unit, change_type, report_id=None, user_id=None, notes=None):
+    """Apply inventory change and record transaction. Allows negative stock."""
+    if unit not in ['unit', 'meter']:
+        unit = 'unit'
+
+    item = InventoryItem.query.filter_by(product_name=product_name).first()
+    if not item:
+        item = InventoryItem(product_name=product_name, quantity_unit=0, quantity_meter=0)
+        db.session.add(item)
+        db.session.flush()
+
+    if unit == 'meter':
+        item.quantity_meter = (item.quantity_meter or 0) + float(quantity)
+    else:
+        item.quantity_unit = (item.quantity_unit or 0) + float(quantity)
+
+    tx = InventoryTransaction(
+        product_name=product_name,
+        change_type=change_type,
+        quantity=float(quantity),
+        unit=unit,
+        report_id=report_id,
+        user_id=user_id,
+        notes=notes
+    )
+    db.session.add(tx)
 
 # ============ ROUTES ============
 
@@ -283,7 +392,11 @@ def get_reports():
     if date_to:
         query = query.filter(Report.timestamp <= datetime.fromisoformat(date_to + 'T23:59:59'))
     if search:
-        query = query.filter(Report.address.ilike(f'%{search}%'))
+        query = query.filter(or_(
+            Report.address.ilike(f'%{search}%'),
+            Report.customer_name.ilike(f'%{search}%'),
+            Report.company_project.ilike(f'%{search}%')
+        ))
 
     # Order and paginate
     query = query.order_by(Report.timestamp.desc())
@@ -341,6 +454,7 @@ def create_report():
 
         # Delivery / Installation extra fields
         customer_name = (request.form.get('customer_name') or '').strip()
+        company_project = (request.form.get('company_project') or '').strip()
         report_datetime_raw = request.form.get('report_datetime')
 
         # installation_types is expected to be a JSON array string from the client
@@ -398,9 +512,6 @@ def create_report():
             except (TypeError, ValueError):
                 protections_count = None
 
-            if not protections_count or protections_count < 1:
-                return jsonify({'success': False, 'error': 'יש להזין מספר הגנות תקין'}), 400
-
         # Parse products
         try:
             products_data = json.loads(products_json)
@@ -415,6 +526,7 @@ def create_report():
             user_id=current_user.id,
             report_type=report_type,
             customer_name=customer_name,
+            company_project=company_project or None,
             installation_type=installation_type_display if report_type == 'installation' else None,
             installation_types=(
                 json.dumps(installation_types_list, ensure_ascii=False)
@@ -444,6 +556,28 @@ def create_report():
                     quantity_unit=unit
                 )
                 db.session.add(report_product)
+
+                # Inventory: subtract reported quantity
+                apply_inventory_change(
+                    product_name=product['name'],
+                    quantity=-float(product['quantity']),
+                    unit=unit,
+                    change_type='report',
+                    report_id=report.id,
+                    user_id=current_user.id,
+                    notes=f"Report #{report.id} (offline sync)"
+                )
+
+                # Inventory: subtract reported quantity
+                apply_inventory_change(
+                    product_name=product['name'],
+                    quantity=-float(product['quantity']),
+                    unit=unit,
+                    change_type='report',
+                    report_id=report.id,
+                    user_id=current_user.id,
+                    notes=f"Report #{report.id}"
+                )
 
         # Handle delivery note upload (MANDATORY for delivery reports)
         if report_type == 'delivery':
@@ -607,6 +741,195 @@ def delete_user(user_id):
 
     return jsonify({'success': True, 'message': 'המשתמש נמחק בהצלחה'})
 
+
+@app.route('/api/company-projects', methods=['GET'])
+@login_required
+def get_company_projects():
+    """Get company/project names"""
+    include_inactive = request.args.get('include_inactive') == 'true'
+
+    query = CompanyProject.query
+    if not current_user.is_admin() or not include_inactive:
+        query = query.filter(CompanyProject.is_active == True)  # noqa: E712
+
+    projects = query.order_by(CompanyProject.name.asc()).all()
+    return jsonify({
+        'projects': [p.to_dict() for p in projects]
+    })
+
+
+@app.route('/api/company-projects', methods=['POST'])
+@login_required
+def create_company_project():
+    """Create company/project (admin only)"""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'error': 'יש להזין שם'}), 400
+
+    existing = CompanyProject.query.filter_by(name=name).first()
+    if existing:
+        existing.is_active = True
+        db.session.commit()
+        return jsonify({'success': True, 'project': existing.to_dict()})
+
+    project = CompanyProject(name=name, is_active=True)
+    db.session.add(project)
+    db.session.commit()
+
+    return jsonify({'success': True, 'project': project.to_dict()})
+
+
+@app.route('/api/company-projects/<int:project_id>', methods=['DELETE'])
+@login_required
+def delete_company_project(project_id):
+    """Delete company/project (admin only)"""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    project = CompanyProject.query.get_or_404(project_id)
+    db.session.delete(project)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'הפריט נמחק בהצלחה'})
+
+
+@app.route('/api/inventory', methods=['GET'])
+@login_required
+def get_inventory():
+    """Get inventory list (admin only)"""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    # Ensure inventory items exist for all products
+    existing_items = {i.product_name: i for i in InventoryItem.query.all()}
+    for product in PRODUCTS:
+        if product not in existing_items:
+            item = InventoryItem(product_name=product, quantity_unit=0, quantity_meter=0)
+            db.session.add(item)
+            existing_items[product] = item
+    db.session.commit()
+
+    items = [existing_items[p].to_dict() for p in PRODUCTS if p in existing_items]
+    return jsonify({'items': items})
+
+
+@app.route('/api/inventory/adjust', methods=['POST'])
+@login_required
+def adjust_inventory():
+    """Adjust inventory (admin only). Allows negative stock."""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    if not isinstance(items, list):
+        return jsonify({'success': False, 'error': 'נתונים לא תקינים'}), 400
+
+    try:
+        for item in items:
+            product_name = (item.get('product_name') or '').strip()
+            if not product_name:
+                continue
+
+            target_unit = float(item.get('quantity_unit') or 0)
+            target_meter = float(item.get('quantity_meter') or 0)
+
+            inv = InventoryItem.query.filter_by(product_name=product_name).first()
+            if not inv:
+                inv = InventoryItem(product_name=product_name, quantity_unit=0, quantity_meter=0)
+                db.session.add(inv)
+                db.session.flush()
+
+            delta_unit = target_unit - (inv.quantity_unit or 0)
+            delta_meter = target_meter - (inv.quantity_meter or 0)
+
+            if delta_unit != 0:
+                apply_inventory_change(
+                    product_name=product_name,
+                    quantity=delta_unit,
+                    unit='unit',
+                    change_type='adjustment',
+                    user_id=current_user.id,
+                    notes='Manual adjustment'
+                )
+
+            if delta_meter != 0:
+                apply_inventory_change(
+                    product_name=product_name,
+                    quantity=delta_meter,
+                    unit='meter',
+                    change_type='adjustment',
+                    user_id=current_user.id,
+                    notes='Manual adjustment'
+                )
+
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _export_inventory_to_excel(items, transactions):
+    from openpyxl import Workbook
+    from io import BytesIO
+    from flask import send_file
+
+    wb = Workbook()
+    ws_items = wb.active
+    ws_items.title = "מלאי"
+
+    ws_items.append(['מוצר', 'כמות יחידה', 'כמות מטר', 'עודכן לאחרונה'])
+    for item in items:
+        ws_items.append([
+            item.product_name,
+            item.quantity_unit or 0,
+            item.quantity_meter or 0,
+            item.updated_at.strftime('%d/%m/%Y %H:%M') if item.updated_at else ''
+        ])
+
+    ws_tx = wb.create_sheet(title="תנועות מלאי")
+    ws_tx.append(['מוצר', 'סוג שינוי', 'כמות', 'יחידה', 'דוח', 'משתמש', 'הערה', 'תאריך'])
+    for tx in transactions:
+        ws_tx.append([
+            tx.product_name,
+            tx.change_type,
+            tx.quantity,
+            'יח׳' if tx.unit == 'unit' else 'מ׳',
+            tx.report_id or '',
+            tx.user_id or '',
+            tx.notes or '',
+            tx.created_at.strftime('%d/%m/%Y %H:%M') if tx.created_at else ''
+        ])
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'inventory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
+
+@app.route('/api/inventory/export')
+@login_required
+def export_inventory():
+    """Export inventory and transactions (admin only)"""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    items = InventoryItem.query.order_by(InventoryItem.product_name.asc()).all()
+    transactions = InventoryTransaction.query.order_by(InventoryTransaction.created_at.desc()).all()
+    return _export_inventory_to_excel(items, transactions)
+
+
 @app.route('/api/stats')
 @login_required
 def get_stats():
@@ -659,8 +982,8 @@ def _export_reports_to_excel(reports, filename_prefix):
         'משתמש',
         'סוג דוח',
         'שם לקוח',
+        'חברת בניה/פרויקט',
         'סוגי התקנה',
-        'מספר הגנות',
         'כתובת',
         'סטטוס',
         'תאריך',
@@ -680,8 +1003,8 @@ def _export_reports_to_excel(reports, filename_prefix):
             report.author.full_name if report.author else '',
             'אספקה' if report.report_type == 'delivery' else 'התקנה',
             report.customer_name or '',
+            report.company_project or '',
             report.installation_type or '',
-            report.protections_count or '',
             report.address,
             'הושלם' if report.status == 'completed' else 'נדרש חזרה',
             report.timestamp.strftime('%d/%m/%Y %H:%M') if report.timestamp else '',
@@ -800,6 +1123,7 @@ def sync_offline_reports():
                 user_id=current_user.id,
                 report_type=offline_type,
                 customer_name=report_data.get('customer_name'),
+                company_project=report_data.get('company_project'),
                 installation_type=installation_type_display if offline_type == 'installation' else None,
                 installation_types=(
                     json.dumps(offline_installation_types, ensure_ascii=False)
