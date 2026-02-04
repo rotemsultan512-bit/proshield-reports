@@ -344,6 +344,17 @@ def view_report(report_id):
 
     return render_template('view_report.html', report=report)
 
+@app.route('/report/<int:report_id>/edit')
+@login_required
+def edit_report(report_id):
+    report = Report.query.get_or_404(report_id)
+
+    if not current_user.is_admin() and report.user_id != current_user.id:
+        flash('אין לך הרשאה לערוך דוח זה', 'error')
+        return redirect(url_for('dashboard'))
+
+    return render_template('new_report.html', products=PRODUCTS, edit_mode=True, report_id=report.id)
+
 @app.route('/settings')
 @login_required
 def settings():
@@ -636,6 +647,150 @@ def create_report():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': f'שגיאה בשמירת הדוח: {str(e)}'}), 500
+
+
+@app.route('/api/reports/<int:report_id>', methods=['GET'])
+@login_required
+def get_report(report_id):
+    """Get single report"""
+    report = Report.query.get_or_404(report_id)
+
+    if not current_user.is_admin() and report.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    return jsonify(report.to_dict())
+
+
+@app.route('/api/reports/<int:report_id>', methods=['PUT'])
+@login_required
+def update_report(report_id):
+    """Update a report and sync inventory"""
+    report = Report.query.get_or_404(report_id)
+
+    if not current_user.is_admin() and report.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    try:
+        report_type = request.form.get('report_type')
+        address = request.form.get('address')
+        status = request.form.get('status')
+        notes = request.form.get('notes', '')
+        products_json = request.form.get('products', '[]')
+
+        customer_name = (request.form.get('customer_name') or '').strip()
+        company_project = (request.form.get('company_project') or '').strip()
+        report_datetime_raw = request.form.get('report_datetime')
+
+        installation_types_raw = request.form.get('installation_types')
+        installation_type_single = request.form.get('installation_type')
+
+        if not all([report_type, address, status]):
+            return jsonify({'success': False, 'error': 'יש למלא את כל השדות הנדרשים'}), 400
+
+        if not customer_name:
+            return jsonify({'success': False, 'error': 'יש להזין שם לקוח'}), 400
+
+        # Parse report date/time
+        report_timestamp = None
+        if report_datetime_raw:
+            try:
+                report_timestamp = datetime.fromisoformat(report_datetime_raw)
+            except ValueError:
+                return jsonify({'success': False, 'error': 'תאריך/שעה לא תקין'}), 400
+        else:
+            return jsonify({'success': False, 'error': 'יש לבחור תאריך ושעה'}), 400
+
+        # Installation types
+        installation_types_list = []
+        installation_type_display = None
+        if report_type == 'installation':
+            if installation_types_raw:
+                try:
+                    installation_types_list = json.loads(installation_types_raw)
+                    if not isinstance(installation_types_list, list):
+                        installation_types_list = []
+                except json.JSONDecodeError:
+                    installation_types_list = []
+
+            if not installation_types_list and installation_type_single:
+                installation_types_list = [installation_type_single]
+
+            if not installation_types_list:
+                return jsonify({'success': False, 'error': 'יש לבחור לפחות סוג התקנה אחד'}), 400
+
+            installation_type_display = ', '.join([str(x) for x in installation_types_list if x])
+
+        # Parse products
+        try:
+            products_data = json.loads(products_json)
+        except json.JSONDecodeError:
+            products_data = []
+
+        if not products_data:
+            return jsonify({'success': False, 'error': 'יש לבחור לפחות מוצר אחד'}), 400
+
+        # Revert inventory from old products
+        for old_product in report.products:
+            apply_inventory_change(
+                product_name=old_product.product_name,
+                quantity=float(old_product.quantity),
+                unit=old_product.quantity_unit or 'unit',
+                change_type='report_edit',
+                report_id=report.id,
+                user_id=current_user.id,
+                notes=f"Revert Report #{report.id}"
+            )
+
+        # Clear old products
+        ReportProduct.query.filter_by(report_id=report.id).delete()
+
+        # Update report fields
+        report.report_type = report_type
+        report.customer_name = customer_name
+        report.company_project = company_project or None
+        report.address = address
+        report.status = status
+        report.notes = notes
+        report.timestamp = report_timestamp
+        report.installation_types = (
+            json.dumps(installation_types_list, ensure_ascii=False)
+            if report_type == 'installation'
+            else None
+        )
+        report.installation_type = installation_type_display if report_type == 'installation' else None
+
+        # Add new products + apply inventory
+        for product in products_data:
+            if product.get('name') and product.get('quantity'):
+                unit = product.get('unit') or 'unit'
+                if unit not in ['unit', 'meter']:
+                    unit = 'unit'
+
+                report_product = ReportProduct(
+                    report_id=report.id,
+                    product_name=product['name'],
+                    quantity=float(product['quantity']),
+                    quantity_unit=unit
+                )
+                db.session.add(report_product)
+
+                apply_inventory_change(
+                    product_name=product['name'],
+                    quantity=-float(product['quantity']),
+                    unit=unit,
+                    change_type='report_edit',
+                    report_id=report.id,
+                    user_id=current_user.id,
+                    notes=f"Update Report #{report.id}"
+                )
+
+        db.session.commit()
+        return jsonify({'success': True, 'report_id': report.id})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'שגיאה בעדכון הדוח: {str(e)}'}), 500
+
 
 @app.route('/api/reports/<int:report_id>', methods=['DELETE'])
 @login_required

@@ -1066,7 +1066,7 @@ a:hover {
 
 @media (min-width: 768px) {
     .stats-row {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(5, 1fr);
         gap: var(--space-4);
         margin-bottom: var(--space-6);
     }
@@ -1075,7 +1075,7 @@ a:hover {
 .stat-card {
     background: var(--surface);
     border-radius: var(--radius-xl);
-    padding: var(--space-4);
+    padding: var(--space-3);
     box-shadow: var(--shadow-card);
     transition: all var(--transition-base);
     position: relative;
@@ -1085,7 +1085,7 @@ a:hover {
 
 @media (min-width: 768px) {
     .stat-card {
-        padding: var(--space-5);
+        padding: var(--space-4);
     }
 }
 
@@ -1094,27 +1094,32 @@ a:hover {
     box-shadow: var(--shadow-card-hover);
 }
 
+.stat-card.inventory-card {
+    text-decoration: none;
+    color: inherit;
+}
+
 .stat-card .stat-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border-radius: var(--radius-lg);
-    font-size: 1.25rem;
-    margin-bottom: var(--space-3);
+    font-size: 1.1rem;
+    margin-bottom: var(--space-2);
 }
 
 @media (min-width: 768px) {
     .stat-card .stat-icon {
-        width: 48px;
-        height: 48px;
-        font-size: 1.5rem;
+        width: 42px;
+        height: 42px;
+        font-size: 1.25rem;
     }
 }
 
 .stat-card .stat-value {
-    font-size: var(--font-size-2xl);
+    font-size: var(--font-size-xl);
     font-weight: 800;
     margin-bottom: var(--space-1);
     color: var(--text);
@@ -1122,7 +1127,7 @@ a:hover {
 
 @media (min-width: 768px) {
     .stat-card .stat-value {
-        font-size: var(--font-size-3xl);
+        font-size: var(--font-size-2xl);
     }
 }
 
@@ -1163,12 +1168,12 @@ a:hover {
 }
 
 .stat-card.gradient-orange .stat-value {
-    color: var(--brand-secondary);
+    color: var(--white);
 }
 
 .stat-card.gradient-orange .stat-label {
-    color: var(--brand-secondary);
-    opacity: 0.8;
+    color: var(--white);
+    opacity: 0.85;
 }
 
 .stat-card.gradient-installation {
@@ -1228,12 +1233,12 @@ a:hover {
 
 .filter-group label {
     display: block;
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    color: var(--text);
     margin-bottom: var(--space-2);
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
+    text-transform: none;
+    letter-spacing: 0;
 }
 
 .filter-group input,
@@ -1243,7 +1248,7 @@ a:hover {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     font-family: var(--font-family);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     transition: all var(--transition-fast);
     background: var(--surface);
 }
@@ -1956,6 +1961,32 @@ a:hover {
     flex-wrap: wrap;
 }
 
+.dropdown-toggle {
+    width: 100%;
+    text-align: right;
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-100);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.dropdown-content {
+    display: none;
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    max-height: 300px;
+    overflow: auto;
+}
+
+.dropdown-content.open {
+    display: block;
+}
+
 .delivery-note-section {
     border: 2px dashed var(--brand-primary);
     background: rgba(247, 168, 50, 0.03);
@@ -2575,27 +2606,31 @@ a:hover {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    max-width: 900px;
+    margin: 0 auto;
 }
 
-.inventory-header,
 .inventory-row {
     display: grid;
-    grid-template-columns: 2fr 1fr 1fr 1fr;
-    gap: var(--space-3);
+    grid-template-columns: 1.8fr 1fr 1fr 1fr;
+    gap: var(--space-2);
     align-items: center;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-lg);
-}
-
-.inventory-header {
-    background: var(--gray-100);
-    font-weight: 700;
-    font-size: var(--font-size-sm);
-}
-
-.inventory-row {
     background: var(--gray-50);
     border: 1px solid var(--border-light);
+}
+
+.inventory-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.inventory-cell label {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    font-weight: 600;
 }
 
 .inventory-input {
@@ -2603,7 +2638,7 @@ a:hover {
 }
 
 .inventory-name {
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .inventory-updated {
@@ -2612,7 +2647,6 @@ a:hover {
 }
 
 @media (max-width: 768px) {
-    .inventory-header,
     .inventory-row {
         grid-template-columns: 1fr;
         gap: var(--space-2);

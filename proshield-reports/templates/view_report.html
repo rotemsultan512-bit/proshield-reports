@@ -8,6 +8,9 @@
         <a href="{{ url_for('dashboard') }}" class="back-link">◀ חזרה לדוחות</a>
         <h1>📋 דוח #{{ report.id }}</h1>
         <div class="report-actions">
+            <a href="{{ url_for('edit_report', report_id=report.id) }}" class="btn btn-secondary btn-sm">
+                ✏️ ערוך
+            </a>
             <button class="btn btn-danger btn-sm" id="deleteBtn" title="מחק דוח">
                 🗑️ מחק
             </button>

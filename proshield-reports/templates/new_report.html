@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}דוח חדש - Proshield Reports{% endblock %}
+{% block title %}{% if edit_mode %}עריכת דוח{% else %}דוח חדש{% endif %} - Proshield Reports{% endblock %}
 
 {% block content %}
 <div class="new-report-page">
     <div class="page-header">
         <a href="{{ url_for('dashboard') }}" class="back-link">◀ חזרה לדוחות</a>
-        <h1>📝 דוח חדש</h1>
+        <h1>{% if edit_mode %}✏️ עריכת דוח{% else %}📝 דוח חדש{% endif %}</h1>
     </div>
 
-    <form id="reportForm" class="report-form">
+    <form id="reportForm" class="report-form" data-report-id="{{ report_id or '' }}" data-edit-mode="{{ 'true' if edit_mode else 'false' }}">
         <!-- Step 1: Report Type -->
         <div class="form-section">
             <h2>1. סוג דוח</h2>
@@ -61,7 +61,8 @@
 
                 <div class="form-group">
                     <label>בחר סוג/ים של התקנה</label>
-                    <div class="installation-types" id="installationTypesWrap">
+                    <button type="button" class="dropdown-toggle" id="installationTypesToggle">בחר סוגי התקנה</button>
+                    <div class="dropdown-content installation-types" id="installationTypesWrap">
                         <label class="install-type-item">
                             <input type="checkbox" name="installation_types" value="הגנת מדרגות">
                             <span>הגנת מדרגות</span>
@@ -120,26 +121,29 @@
         <div class="form-section">
             <h2>3. מוצרים</h2>
             <div class="products-selector">
-                <div class="products-search">
-                    <input type="text" id="productSearch" placeholder="🔍 חפש מוצר...">
-                </div>
-                <div class="products-list" id="productsList">
-                    {% for product in products %}
-                    <label class="product-item">
-                        <input type="checkbox" name="products" value="{{ product }}">
-                        <span class="product-name">{{ product }}</span>
-                        <div class="product-quantity" style="display:none;">
-                            <label id="quantityLabel">כמות:</label>
-                            <div class="quantity-row">
-                                <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input">
-                                <select class="quantity-unit">
-                                    <option value="unit">יחידה</option>
-                                    <option value="meter">מטר</option>
-                                </select>
+                <button type="button" class="dropdown-toggle" id="productsToggle">בחר מוצרים</button>
+                <div class="dropdown-content" id="productsDropdown">
+                    <div class="products-search">
+                        <input type="text" id="productSearch" placeholder="🔍 חפש מוצר...">
+                    </div>
+                    <div class="products-list" id="productsList">
+                        {% for product in products %}
+                        <label class="product-item">
+                            <input type="checkbox" name="products" value="{{ product }}">
+                            <span class="product-name">{{ product }}</span>
+                            <div class="product-quantity" style="display:none;">
+                                <label id="quantityLabel">כמות:</label>
+                                <div class="quantity-row">
+                                    <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input">
+                                    <select class="quantity-unit">
+                                        <option value="meter" selected>מטר</option>
+                                        <option value="unit">יחידה</option>
+                                    </select>
+                                </div>
                             </div>
-                        </div>
-                    </label>
-                    {% endfor %}
+                        </label>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
             <div class="selected-products" id="selectedProducts">
@@ -269,6 +273,11 @@
     // Installation details
     const installationDetails = document.getElementById('installationDetails');
     const installationTypesWrap = document.getElementById('installationTypesWrap');
+    const installationTypesToggle = document.getElementById('installationTypesToggle');
+
+    // Products dropdown
+    const productsToggle = document.getElementById('productsToggle');
+    const productsDropdown = document.getElementById('productsDropdown');
 
     // Delivery / Installation extra fields
     const customerNameWrap = document.getElementById('customerNameWrap');
@@ -284,7 +293,30 @@
     let uploadedPhotos = [];
     let uploadedDeliveryNote = null;
 
+    const editMode = reportForm.dataset.editMode === 'true';
+    const editReportId = reportForm.dataset.reportId;
+
+    if (editMode) {
+        const btnText = submitBtn.querySelector('.btn-text');
+        if (btnText) btnText.textContent = '💾 עדכן דוח';
+    }
+
     loadCompanyProjects();
+    loadReportForEdit();
+
+    function toggleDropdown(contentEl) {
+        if (!contentEl) return;
+        contentEl.classList.toggle('open');
+    }
+
+    installationTypesToggle?.addEventListener('click', () => toggleDropdown(installationTypesWrap));
+    productsToggle?.addEventListener('click', () => toggleDropdown(productsDropdown));
+
+    productSearch.addEventListener('focus', () => {
+        if (productsDropdown) {
+            productsDropdown.classList.add('open');
+        }
+    });
 
     function resetInstallationFields() {
         if (installationTypesWrap) {
@@ -317,6 +349,77 @@
             `).join('');
         } catch (error) {
             console.error('Error loading company/project list:', error);
+        }
+    }
+
+    async function loadReportForEdit() {
+        if (!editMode || !editReportId) return;
+
+        try {
+            const response = await fetch(`/api/reports/${editReportId}`);
+            const data = await response.json();
+            if (!data || !data.id) return;
+
+            // Set type
+            const typeInput = document.querySelector(`input[name="report_type"][value="${data.report_type}"]`);
+            if (typeInput) {
+                typeInput.checked = true;
+                typeInput.dispatchEvent(new Event('change'));
+            }
+
+            // Basic fields
+            document.getElementById('address').value = data.address || '';
+            if (customerNameInput) customerNameInput.value = data.customer_name || '';
+            if (companyProjectInput) companyProjectInput.value = data.company_project || '';
+            if (reportDateInput && data.timestamp) {
+                const dt = new Date(data.timestamp);
+                const pad = (n) => String(n).padStart(2, '0');
+                reportDateInput.value = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+            }
+
+            // Status
+            const statusInput = document.querySelector(`input[name="status"][value="${data.status}"]`);
+            if (statusInput) statusInput.checked = true;
+
+            // Installation types
+            if (data.report_type === 'installation' && data.installation_types) {
+                let types = [];
+                try {
+                    types = JSON.parse(data.installation_types);
+                } catch (e) {
+                    types = [];
+                }
+                if (Array.isArray(types)) {
+                    types.forEach(t => {
+                        const cb = document.querySelector(`input[name="installation_types"][value="${t}"]`);
+                        if (cb) cb.checked = true;
+                    });
+                }
+            }
+
+            // Products
+            if (Array.isArray(data.products)) {
+                data.products.forEach(p => {
+                    const checkbox = document.querySelector(`input[name="products"][value="${p.product_name}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                        const item = checkbox.closest('.product-item');
+                        const quantityDiv = item?.querySelector('.product-quantity');
+                        const quantityInput = item?.querySelector('.quantity-input');
+                        const unitSelect = item?.querySelector('.quantity-unit');
+                        if (quantityDiv) quantityDiv.style.display = 'flex';
+                        if (quantityInput) quantityInput.value = p.quantity ?? '';
+                        if (unitSelect) unitSelect.value = p.quantity_unit || 'meter';
+                    }
+                });
+                updateSelectedProducts();
+            }
+
+            if (productsDropdown) {
+                productsDropdown.classList.add('open');
+            }
+        } catch (error) {
+            console.error('Error loading report for edit:', error);
         }
     }
 
@@ -368,6 +471,7 @@
 
                 // Show installation details before products
                 installationDetails.style.display = 'block';
+                installationTypesWrap?.classList.add('open');
                 resetInstallationFields();
             }
         });
@@ -399,6 +503,8 @@
         checkbox.addEventListener('change', () => {
             if (checkbox.checked) {
                 quantityDiv.style.display = 'flex';
+                const unitSelect = item.querySelector('.quantity-unit');
+                if (unitSelect) unitSelect.value = 'meter';
                 quantityInput.focus();
             } else {
                 quantityDiv.style.display = 'none';
@@ -684,7 +790,7 @@
         }
 
         // Validate delivery note for delivery reports (MANDATORY)
-        if (reportType === 'delivery' && !uploadedDeliveryNote) {
+        if (reportType === 'delivery' && !uploadedDeliveryNote && !editMode) {
             showToast('יש להעלות תעודת משלוח חתומה עבור דוח אספקה', 'error');
             deliveryNoteError.style.display = 'flex';
             deliveryNoteSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -743,8 +849,10 @@
         }
 
         try {
-            const response = await fetch('/api/reports', {
-                method: 'POST',
+            const endpoint = editMode && editReportId ? `/api/reports/${editReportId}` : '/api/reports';
+            const method = editMode && editReportId ? 'PUT' : 'POST';
+            const response = await fetch(endpoint, {
+                method: method,
                 body: formData
             });
 

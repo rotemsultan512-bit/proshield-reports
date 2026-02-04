@@ -125,7 +125,8 @@
             </div>
 
             <div class="inventory-filters">
-                <input type="text" id="inventorySearch" placeholder="חפש מוצר...">
+                <input type="text" id="inventorySearch" list="inventorySearchOptions" placeholder="חפש מוצר...">
+                <datalist id="inventorySearchOptions"></datalist>
             </div>
 
             <div class="inventory-table" id="inventoryTable">
@@ -186,17 +187,20 @@
     let userToDelete = null;
 
     // Tab switching
+    function activateTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+        if (btn) btn.classList.add('active');
+
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        const tab = document.getElementById(tabId + 'Tab');
+        if (tab) tab.classList.add('active');
+    }
+
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tabId = btn.dataset.tab;
-
-            // Update buttons
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-
-            // Update content
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.getElementById(tabId + 'Tab').classList.add('active');
+            activateTab(tabId);
         });
     });
 
@@ -206,6 +210,10 @@
         loadUsers();
         loadCompanyProjects();
         loadInventory();
+
+        if (window.location.hash === '#inventory') {
+            activateTab('inventory');
+        }
     });
 
     // Load statistics
@@ -360,6 +368,12 @@
             const data = await response.json();
             inventoryItems = data.items || [];
             renderInventory(inventoryItems);
+            const options = document.getElementById('inventorySearchOptions');
+            if (options) {
+                options.innerHTML = inventoryItems.map(i => `
+                    <option value="${escapeHtml(i.product_name)}"></option>
+                `).join('');
+            }
         } catch (error) {
             console.error('Error loading inventory:', error);
         }
@@ -374,27 +388,35 @@
             return;
         }
 
-        container.innerHTML = `
-            <div class="inventory-header">
-                <span>מוצר</span>
-                <span>יחידה</span>
-                <span>מטר</span>
-                <span>עודכן</span>
-            </div>
-            ${items.map(item => `
-                <div class="inventory-row" data-name="${escapeHtml(item.product_name)}">
+        container.innerHTML = items.map(item => `
+            <div class="inventory-row" data-name="${escapeHtml(item.product_name)}">
+                <div class="inventory-cell">
+                    <label>מוצר</label>
                     <span class="inventory-name">${escapeHtml(item.product_name)}</span>
+                </div>
+                <div class="inventory-cell">
+                    <label>יחידה</label>
                     <input type="number" step="0.1" class="inventory-input" data-unit="unit" value="${item.quantity_unit ?? 0}">
+                </div>
+                <div class="inventory-cell">
+                    <label>מטר</label>
                     <input type="number" step="0.1" class="inventory-input" data-unit="meter" value="${item.quantity_meter ?? 0}">
+                </div>
+                <div class="inventory-cell">
+                    <label>עודכן</label>
                     <span class="inventory-updated">${item.updated_at ? formatDate(item.updated_at) : '-'}</span>
                 </div>
-            `).join('')}
-        `;
+            </div>
+        `).join('');
     }
 
     document.getElementById('inventorySearch')?.addEventListener('input', (e) => {
         const term = e.target.value.toLowerCase();
-        const filtered = inventoryItems.filter(i => i.product_name.toLowerCase().includes(term));
+        if (!term) {
+            renderInventory(inventoryItems);
+            return;
+        }
+        const filtered = inventoryItems.filter(i => i.product_name.toLowerCase().startsWith(term));
         renderInventory(filtered);
     });
 
