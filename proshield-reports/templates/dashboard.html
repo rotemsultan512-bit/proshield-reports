@@ -57,7 +57,7 @@
             <div class="stat-label">החודש</div>
         </div>
         {% if current_user.is_admin() %}
-        <a href="/admin#inventory" class="stat-card inventory-card">
+        <a href="{{ url_for('inventory_page') }}" class="stat-card inventory-card">
             <div class="stat-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M3 7h18v10H3z"/>

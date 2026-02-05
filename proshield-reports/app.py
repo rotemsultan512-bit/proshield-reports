@@ -377,6 +377,14 @@ def admin_dashboard():
         return redirect(url_for('dashboard'))
     return render_template('admin.html')
 
+@app.route('/inventory')
+@login_required
+def inventory_page():
+    if not current_user.is_admin():
+        flash('אין לך הרשאה לגשת לעמוד זה', 'error')
+        return redirect(url_for('dashboard'))
+    return render_template('inventory.html')
+
 # ============ API ROUTES ============
 
 @app.route('/api/reports', methods=['GET'])
@@ -896,6 +904,36 @@ def create_user():
 
     return jsonify({'success': True, 'message': 'המשתמש נוצר בהצלחה'})
 
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+def update_user(user_id):
+    """Update user details (admin only)"""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    data = request.get_json() or {}
+    full_name = (data.get('full_name') or '').strip()
+    role = (data.get('role') or 'user').strip()
+    is_active = data.get('is_active')
+
+    if role not in ['user', 'admin']:
+        return jsonify({'success': False, 'error': 'תפקיד לא תקין'}), 400
+
+    user = User.query.get_or_404(user_id)
+
+    if user.id == current_user.id and role != 'admin':
+        return jsonify({'success': False, 'error': 'לא ניתן להסיר הרשאת מנהל מעצמך'}), 400
+
+    if full_name:
+        user.full_name = full_name
+    user.role = role
+
+    if is_active is not None:
+        user.is_active = bool(is_active)
+
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'המשתמש עודכן בהצלחה'})
+
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @login_required
 def delete_user(user_id):
@@ -1207,9 +1245,12 @@ def export_reports():
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     report_type = request.args.get('type')
+    user_id = request.args.get('user_id', type=int)
 
     query = Report.query
 
+    if user_id:
+        query = query.filter(Report.user_id == user_id)
     if date_from:
         query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
     if date_to:

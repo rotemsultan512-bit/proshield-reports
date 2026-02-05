@@ -80,6 +80,12 @@
                         <option value="installation">התקנה</option>
                     </select>
                 </div>
+                <div class="filter-group">
+                    <label>עובד</label>
+                    <select id="exportUserId">
+                        <option value="">כל העובדים</option>
+                    </select>
+                </div>
             </div>
             <button class="btn btn-primary btn-lg" id="exportBtn">
                 📥 הורד קובץ אקסל
@@ -136,6 +142,17 @@
     </div>
 </div>
 
+<!-- User Reports Modal -->
+<div class="modal" id="userReportsModal">
+    <div class="modal-content modal-wide">
+        <div class="modal-header">
+            <h3 id="userReportsTitle">📊 דוחות משתמש</h3>
+            <button class="btn btn-ghost btn-sm" id="closeUserReports">סגור</button>
+        </div>
+        <div class="user-reports-list" id="userReportsList"></div>
+    </div>
+</div>
+
 <!-- Add User Modal -->
 <div class="modal" id="addUserModal">
     <div class="modal-content">
@@ -180,11 +197,43 @@
         </div>
     </div>
 </div>
+
+<!-- Edit User Modal -->
+<div class="modal" id="editUserModal">
+    <div class="modal-content">
+        <h3>✏️ עריכת משתמש</h3>
+        <form id="editUserForm">
+            <input type="hidden" id="editUserId">
+            <div class="form-group">
+                <label>שם מלא</label>
+                <input type="text" id="editFullName" required>
+            </div>
+            <div class="form-group">
+                <label>תפקיד</label>
+                <select id="editRole">
+                    <option value="user">משתמש רגיל</option>
+                    <option value="admin">מנהל</option>
+                </select>
+            </div>
+            <div class="form-group checkbox-group">
+                <label>
+                    <input type="checkbox" id="editIsActive" checked>
+                    משתמש פעיל
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" id="cancelEditUser">ביטול</button>
+                <button type="submit" class="btn btn-primary">שמור</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
     let userToDelete = null;
+    let usersCache = [];
 
     // Tab switching
     function activateTab(tabId) {
@@ -238,11 +287,19 @@
     function renderUserStats(userStats) {
         const container = document.getElementById('userStatsList');
         container.innerHTML = userStats.map(user => `
-            <div class="user-stat-item">
+            <button class="user-stat-item" data-user-id="${user.user_id}" data-user-name="${escapeHtml(user.full_name)}">
                 <span class="user-name">${escapeHtml(user.full_name)}</span>
                 <span class="user-count">${user.count} דוחות</span>
-            </div>
+            </button>
         `).join('');
+
+        container.querySelectorAll('.user-stat-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const userId = btn.dataset.userId;
+                const userName = btn.dataset.userName;
+                openUserReports(userId, userName);
+            });
+        });
     }
 
     // Load users
@@ -250,7 +307,9 @@
         try {
             const response = await fetch('/api/users');
             const data = await response.json();
-            renderUsers(data.users);
+            usersCache = data.users || [];
+            renderUsers(usersCache);
+            renderExportUsers(usersCache);
         } catch (error) {
             console.error('Error loading users:', error);
         }
@@ -267,6 +326,7 @@
                 </div>
                 <span class="user-role ${user.role}">${user.role === 'admin' ? 'מנהל' : 'משתמש'}</span>
                 ${user.id !== {{ current_user.id }} ? `
+                    <button class="btn btn-ghost btn-sm edit-user-btn" data-id="${user.id}">✏️</button>
                     <button class="btn btn-ghost btn-sm delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.full_name)}">
                         🗑️
                     </button>
@@ -282,6 +342,30 @@
                 document.getElementById('deleteUserModal').classList.add('active');
             });
         });
+
+        // Add edit handlers
+        document.querySelectorAll('.edit-user-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const userId = Number(btn.dataset.id);
+                const user = usersCache.find(u => u.id === userId);
+                if (!user) return;
+
+                document.getElementById('editUserId').value = user.id;
+                document.getElementById('editFullName').value = user.full_name || '';
+                document.getElementById('editRole').value = user.role || 'user';
+                document.getElementById('editIsActive').checked = !!user.is_active;
+                document.getElementById('editUserModal').classList.add('active');
+            });
+        });
+    }
+
+    function renderExportUsers(users) {
+        const select = document.getElementById('exportUserId');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">כל העובדים</option>' + users.map(u => (
+            `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`
+        )).join('');
     }
 
     async function loadCompanyProjects() {
@@ -531,6 +615,79 @@
         }
     });
 
+    // Edit user modal
+    document.getElementById('cancelEditUser')?.addEventListener('click', () => {
+        document.getElementById('editUserModal').classList.remove('active');
+    });
+
+    document.getElementById('editUserForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const userId = document.getElementById('editUserId').value;
+        const payload = {
+            full_name: document.getElementById('editFullName').value.trim(),
+            role: document.getElementById('editRole').value,
+            is_active: document.getElementById('editIsActive').checked
+        };
+
+        try {
+            const response = await fetch(`/api/users/${userId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('המשתמש עודכן בהצלחה', 'success');
+                document.getElementById('editUserModal').classList.remove('active');
+                loadUsers();
+                loadStats();
+            } else {
+                showToast(data.error || 'שגיאה בעדכון משתמש', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    // User reports modal
+    document.getElementById('closeUserReports')?.addEventListener('click', () => {
+        document.getElementById('userReportsModal').classList.remove('active');
+    });
+
+    async function openUserReports(userId, userName) {
+        const modal = document.getElementById('userReportsModal');
+        const list = document.getElementById('userReportsList');
+        const title = document.getElementById('userReportsTitle');
+
+        if (!modal || !list || !title) return;
+
+        title.textContent = `📊 דוחות - ${userName}`;
+        list.innerHTML = '<div class="inventory-empty">טוען דוחות...</div>';
+        modal.classList.add('active');
+
+        try {
+            const response = await fetch(`/api/reports?user_id=${userId}&per_page=200`);
+            const data = await response.json();
+            const reports = data.reports || [];
+
+            if (reports.length === 0) {
+                list.innerHTML = '<div class="inventory-empty">אין דוחות למשתמש זה</div>';
+                return;
+            }
+
+            list.innerHTML = reports.map(r => `
+                <a class="user-report-item" href="/report/${r.id}">
+                    <span class="report-title">${r.report_type === 'delivery' ? 'אספקה' : 'התקנה'} • ${escapeHtml(r.address || '')}</span>
+                    <span class="report-meta">${formatDate(r.timestamp)} • ${r.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}</span>
+                </a>
+            `).join('');
+        } catch (error) {
+            list.innerHTML = '<div class="inventory-empty">שגיאת טעינה</div>';
+        }
+    }
+
     // Export
     document.getElementById('exportBtn').addEventListener('click', () => {
         const params = new URLSearchParams();
@@ -538,13 +695,21 @@
         const dateFrom = document.getElementById('exportDateFrom').value;
         const dateTo = document.getElementById('exportDateTo').value;
         const type = document.getElementById('exportType').value;
+        const userId = document.getElementById('exportUserId')?.value;
 
         if (dateFrom) params.append('date_from', dateFrom);
         if (dateTo) params.append('date_to', dateTo);
         if (type) params.append('type', type);
+        if (userId) params.append('user_id', userId);
 
         window.location.href = `/api/export?${params}`;
     });
+
+    function formatDate(dateStr) {
+        const date = new Date(dateStr);
+        if (Number.isNaN(date.getTime())) return '-';
+        return date.toLocaleString('he-IL');
+    }
 
     function escapeHtml(text) {
         const div = document.createElement('div');

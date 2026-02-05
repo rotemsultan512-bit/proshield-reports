@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}מלאי מחסן - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="inventory-page">
+    <div class="inventory-hero">
+        <div class="inventory-hero-text">
+            <h1>מלאי מחסן</h1>
+            <p>ניהול מלאי ברור, מהיר ומדויק עם מבט אחד על כל הפריטים.</p>
+        </div>
+        <div class="inventory-hero-actions">
+            <button class="btn btn-secondary" id="exportInventoryBtn">יצוא מלאי</button>
+            <button class="btn btn-primary" id="saveInventoryBtn">שמור שינויים</button>
+        </div>
+    </div>
+
+    <div class="inventory-kpi-grid">
+        <div class="inventory-kpi">
+            <div class="kpi-label">סה"כ פריטים</div>
+            <div class="kpi-value" id="kpiTotalItems">-</div>
+        </div>
+        <div class="inventory-kpi">
+            <div class="kpi-label">סה"כ יחידות</div>
+            <div class="kpi-value" id="kpiTotalUnits">-</div>
+        </div>
+        <div class="inventory-kpi">
+            <div class="kpi-label">סה"כ מטרים</div>
+            <div class="kpi-value" id="kpiTotalMeters">-</div>
+        </div>
+        <div class="inventory-kpi">
+            <div class="kpi-label">פריטים ריקים</div>
+            <div class="kpi-value" id="kpiEmptyItems">-</div>
+        </div>
+    </div>
+
+    <div class="inventory-controls">
+        <div class="inventory-search">
+            <input type="text" id="inventorySearch" list="inventorySearchOptions" placeholder="חפש מוצר...">
+            <datalist id="inventorySearchOptions"></datalist>
+        </div>
+        <div class="inventory-hint">טיפ: אפשר לחפש לפי תחילת שם המוצר</div>
+    </div>
+
+    <div class="inventory-table">
+        <div class="inventory-header">
+            <div>מוצר</div>
+            <div>יחידות</div>
+            <div>מטרים</div>
+            <div>עודכן</div>
+        </div>
+        <div class="inventory-rows" id="inventoryRows"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let inventoryItems = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadInventory();
+    });
+
+    async function loadInventory() {
+        try {
+            const response = await fetch('/api/inventory');
+            const data = await response.json();
+            inventoryItems = data.items || [];
+            renderInventory(inventoryItems);
+            updateInventoryStats(inventoryItems);
+            const options = document.getElementById('inventorySearchOptions');
+            if (options) {
+                options.innerHTML = inventoryItems.map(i => `
+                    <option value="${escapeHtml(i.product_name)}"></option>
+                `).join('');
+            }
+        } catch (error) {
+            console.error('Error loading inventory:', error);
+        }
+    }
+
+    function updateInventoryStats(items) {
+        const totalItems = items.length;
+        const totalUnits = items.reduce((sum, item) => sum + (Number(item.quantity_unit) || 0), 0);
+        const totalMeters = items.reduce((sum, item) => sum + (Number(item.quantity_meter) || 0), 0);
+        const emptyItems = items.filter(i => (Number(i.quantity_unit) || 0) === 0 && (Number(i.quantity_meter) || 0) === 0).length;
+
+        document.getElementById('kpiTotalItems').textContent = totalItems;
+        document.getElementById('kpiTotalUnits').textContent = totalUnits.toFixed(1);
+        document.getElementById('kpiTotalMeters').textContent = totalMeters.toFixed(1);
+        document.getElementById('kpiEmptyItems').textContent = emptyItems;
+    }
+
+    function renderInventory(items) {
+        const container = document.getElementById('inventoryRows');
+        if (!container) return;
+
+        if (items.length === 0) {
+            container.innerHTML = '<div class="inventory-empty">אין נתוני מלאי</div>';
+            return;
+        }
+
+        container.innerHTML = items.map(item => `
+            <div class="inventory-row" data-name="${escapeHtml(item.product_name)}">
+                <div class="inventory-cell inventory-name">${escapeHtml(item.product_name)}</div>
+                <div class="inventory-cell">
+                    <input type="number" step="0.1" class="inventory-input" data-unit="unit" value="${item.quantity_unit ?? 0}">
+                </div>
+                <div class="inventory-cell">
+                    <input type="number" step="0.1" class="inventory-input" data-unit="meter" value="${item.quantity_meter ?? 0}">
+                </div>
+                <div class="inventory-cell inventory-updated">${item.updated_at ? formatDate(item.updated_at) : '-'}</div>
+            </div>
+        `).join('');
+    }
+
+    document.getElementById('inventorySearch')?.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        if (!term) {
+            renderInventory(inventoryItems);
+            updateInventoryStats(inventoryItems);
+            return;
+        }
+        const filtered = inventoryItems.filter(i => i.product_name.toLowerCase().startsWith(term));
+        renderInventory(filtered);
+        updateInventoryStats(filtered);
+    });
+
+    document.getElementById('saveInventoryBtn')?.addEventListener('click', async () => {
+        const rows = document.querySelectorAll('.inventory-row');
+        const payload = [];
+
+        rows.forEach(row => {
+            const name = row.dataset.name;
+            const inputs = row.querySelectorAll('.inventory-input');
+            const unitInput = Array.from(inputs).find(i => i.dataset.unit === 'unit');
+            const meterInput = Array.from(inputs).find(i => i.dataset.unit === 'meter');
+
+            payload.push({
+                product_name: name,
+                quantity_unit: unitInput ? unitInput.value : 0,
+                quantity_meter: meterInput ? meterInput.value : 0
+            });
+        });
+
+        try {
+            const response = await fetch('/api/inventory/adjust', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: payload })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                showToast('המלאי עודכן בהצלחה', 'success');
+                loadInventory();
+            } else {
+                showToast(data.error || 'שגיאה בעדכון מלאי', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        }
+    });
+
+    document.getElementById('exportInventoryBtn')?.addEventListener('click', () => {
+        window.location.href = '/api/inventory/export';
+    });
+
+    function formatDate(dateStr) {
+        const date = new Date(dateStr);
+        if (Number.isNaN(date.getTime())) return '-';
+        return date.toLocaleString('he-IL');
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+{% endblock %}

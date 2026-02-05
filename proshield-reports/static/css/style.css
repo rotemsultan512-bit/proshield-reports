@@ -6,6 +6,7 @@
 
 /* Google Fonts - Modern Hebrew Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap');
 
 /* ==========================================
    CSS Design System Variables
@@ -1723,10 +1724,11 @@ a:hover {
 .product-item {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--border-light);
     cursor: pointer;
+    flex-wrap: wrap;
     transition: background-color var(--transition-fast);
 }
 
@@ -1750,7 +1752,7 @@ a:hover {
 }
 
 .product-name {
-    flex: 1;
+    flex: 1 1 180px;
     font-weight: 500;
     font-size: var(--font-size-sm);
 }
@@ -1764,13 +1766,14 @@ a:hover {
 }
 
 .quantity-row {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 64px 76px;
     gap: var(--space-2);
+    align-items: center;
 }
 
 .quantity-input {
-    width: 70px;
+    width: 64px;
     padding: var(--space-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1780,6 +1783,7 @@ a:hover {
 }
 
 .quantity-unit {
+    min-width: 76px;
     padding: var(--space-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -3158,6 +3162,227 @@ a:hover {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+}
+
+/* ==========================================
+   Inventory Page
+   ========================================== */
+.inventory-page {
+    font-family: 'Heebo', var(--font-family);
+    font-size: 1.05rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+.inventory-hero {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-6);
+    border-radius: var(--radius-2xl);
+    background: linear-gradient(135deg, rgba(14, 77, 131, 0.12), rgba(249, 160, 34, 0.16));
+    box-shadow: var(--shadow-card);
+}
+
+.inventory-hero h1 {
+    font-size: 2.1rem;
+    letter-spacing: -0.02em;
+}
+
+.inventory-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.inventory-kpi-grid {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.inventory-kpi {
+    padding: var(--space-4);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    box-shadow: var(--shadow-card);
+    border: 1px solid var(--border-light);
+}
+
+.inventory-kpi .kpi-label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.inventory-kpi .kpi-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--brand-secondary);
+}
+
+.inventory-controls {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.inventory-search input {
+    width: 100%;
+    padding: var(--space-3);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: var(--font-size-base);
+}
+
+.inventory-hint {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.inventory-table {
+    border-radius: var(--radius-2xl);
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-card);
+}
+
+.inventory-header {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    padding: var(--space-4);
+    background: var(--gray-50);
+    font-weight: 700;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.inventory-rows {
+    display: flex;
+    flex-direction: column;
+}
+
+.inventory-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-light);
+    gap: var(--space-2);
+}
+
+.inventory-row:nth-child(even) {
+    background: rgba(14, 77, 131, 0.03);
+}
+
+.inventory-cell {
+    font-size: var(--font-size-sm);
+}
+
+.inventory-name {
+    font-weight: 600;
+}
+
+.inventory-input {
+    width: 100%;
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    text-align: center;
+}
+
+.inventory-updated {
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+}
+
+.inventory-empty {
+    padding: var(--space-6);
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+    .inventory-header,
+    .inventory-row {
+        grid-template-columns: 1.6fr 1fr 1fr;
+    }
+
+    .inventory-header div:last-child,
+    .inventory-row .inventory-updated {
+        display: none;
+    }
+}
+
+/* Admin user reports */
+.user-stat-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    background: var(--surface);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+}
+
+.user-stat-item:hover {
+    border-color: var(--brand-primary);
+    box-shadow: 0 6px 18px rgba(14, 77, 131, 0.08);
+}
+
+.modal-wide {
+    width: min(720px, 94vw);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.user-reports-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.user-report-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.user-report-item:hover {
+    border-color: var(--brand-primary);
+}
+
+.user-report-item .report-title {
+    font-weight: 600;
+}
+
+.user-report-item .report-meta {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
 }
 
 /* ==========================================

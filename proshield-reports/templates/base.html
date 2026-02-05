@@ -46,6 +46,9 @@
             <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
                 <span>ניהול</span>
             </a>
+            <a href="{{ url_for('inventory_page') }}" class="nav-link {% if request.endpoint == 'inventory_page' %}active{% endif %}">
+                <span>מלאי מחסן</span>
+            </a>
             {% endif %}
         </div>
 
@@ -77,6 +80,7 @@
         <a href="{{ url_for('dashboard') }}" class="mobile-nav-link">דוחות</a>
         {% if current_user.is_admin() %}
         <a href="{{ url_for('admin_dashboard') }}" class="mobile-nav-link">ניהול</a>
+        <a href="{{ url_for('inventory_page') }}" class="mobile-nav-link">מלאי מחסן</a>
         {% endif %}
         <a href="{{ url_for('settings') }}" class="mobile-nav-link">הגדרות</a>
         <a href="{{ url_for('logout') }}" class="mobile-nav-link">התנתק</a>
