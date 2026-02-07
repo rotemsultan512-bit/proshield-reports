@@ -1407,6 +1407,51 @@ a:hover {
     border-top: 1px solid var(--border-light);
 }
 
+/* Report Card Wrapper with actions */
+.report-card-wrapper {
+    position: relative;
+}
+
+.report-card-actions {
+    position: absolute;
+    top: var(--space-2);
+    left: var(--space-2);
+    display: flex;
+    gap: var(--space-1);
+    z-index: 2;
+}
+
+.btn-card-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all var(--transition-base);
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-card-action:hover {
+    transform: scale(1.1);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-delete-action:hover {
+    background: rgba(249, 115, 22, 0.1);
+    border-color: var(--danger);
+}
+
+.btn-edit-action:hover {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: var(--brand-primary);
+}
+
 /* Reports States */
 .reports-loading {
     padding: var(--space-12);
@@ -1690,6 +1735,46 @@ a:hover {
 }
 
 .status-label {
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+}
+
+/* Installation Team Selector */
+.installation-team-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.team-option input {
+    display: none;
+}
+
+.team-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    background: var(--surface);
+}
+
+.team-card:hover {
+    border-color: var(--brand-primary);
+    background: rgba(247, 168, 50, 0.05);
+}
+
+.team-option input:checked + .team-card {
+    border-color: var(--brand-primary);
+    background: rgba(247, 168, 50, 0.1);
+    box-shadow: 0 0 0 3px rgba(247, 168, 50, 0.15);
+}
+
+.team-label {
     font-weight: 600;
     font-size: var(--font-size-sm);
 }

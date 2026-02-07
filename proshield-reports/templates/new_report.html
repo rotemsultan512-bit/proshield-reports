@@ -45,6 +45,11 @@
                 <input type="text" id="customer_name" name="customer_name" placeholder="הזן שם לקוח...">
             </div>
 
+            <div class="form-group" id="recipientNameWrap" style="display:none;">
+                <label for="recipient_name">שם מקבל הסחורה <span class="optional-badge">אופציונלי</span></label>
+                <input type="text" id="recipient_name" name="recipient_name" placeholder="הזן שם מקבל הסחורה...">
+            </div>
+
             <div class="form-group" id="companyProjectWrap" style="display:none;">
                 <label>חברת בניה/פרויקט <span class="optional-badge">אופציונלי</span></label>
                 <input type="hidden" id="company_project" name="company_project">
@@ -117,6 +122,28 @@
                         </label>
                     </div>
                     <small>ניתן לבחור יותר מסוג אחד</small>
+                </div>
+
+                <div class="form-group" id="installationTeamWrap">
+                    <label>צוות התקנה <span class="required-badge">חובה</span></label>
+                    <div class="installation-team-selector">
+                        <label class="team-option">
+                            <input type="radio" name="installation_team" value="solo">
+                            <div class="team-card">
+                                <span class="team-label">רק אני</span>
+                            </div>
+                        </label>
+                        <label class="team-option">
+                            <input type="radio" name="installation_team" value="with_worker">
+                            <div class="team-card">
+                                <span class="team-label">אני ועובד נוסף</span>
+                            </div>
+                        </label>
+                    </div>
+                    <div class="form-group" id="additionalWorkerWrap" style="display:none;">
+                        <label for="additional_worker_name">שם העובד הנוסף <span class="required-badge">חובה</span></label>
+                        <input type="text" id="additional_worker_name" name="additional_worker_name" placeholder="הזן שם העובד הנוסף...">
+                    </div>
                 </div>
             </div>
         </div>
@@ -200,9 +227,9 @@
             </div>
         </div>
 
-        <!-- Step 6: Delivery Note (Delivery Only - MANDATORY) -->
+        <!-- Step 6: Delivery Note (Delivery Only - OPTIONAL) -->
         <div class="form-section delivery-note-section" id="deliveryNoteSection" style="display:none;">
-            <h2>6. תעודת משלוח חתומה <span class="required-badge">חובה</span></h2>
+            <h2>6. תעודת משלוח חתומה <span class="optional-badge">אופציונלי</span></h2>
             <div class="delivery-note-upload">
                 <div class="upload-area" id="deliveryNoteUploadArea">
                     <input type="file" id="deliveryNoteInput" name="delivery_note" accept=".pdf,.jpg,.jpeg,.png,image/*" style="display:none;">
@@ -279,6 +306,15 @@
     const installationTypesWrap = document.getElementById('installationTypesWrap');
     const installationTypesToggle = document.getElementById('installationTypesToggle');
 
+    // Recipient name (delivery)
+    const recipientNameWrap = document.getElementById('recipientNameWrap');
+    const recipientNameInput = document.getElementById('recipient_name');
+
+    // Installation team
+    const installationTeamInputs = document.querySelectorAll('input[name="installation_team"]');
+    const additionalWorkerWrap = document.getElementById('additionalWorkerWrap');
+    const additionalWorkerNameInput = document.getElementById('additional_worker_name');
+
     // Products dropdown
     const productsToggle = document.getElementById('productsToggle');
     const productsDropdown = document.getElementById('productsDropdown');
@@ -320,6 +356,21 @@
     productsToggle?.addEventListener('click', () => toggleDropdown(productsDropdown));
     companyProjectToggle?.addEventListener('click', () => toggleDropdown(companyProjectDropdown));
 
+    // Installation team radio handler
+    installationTeamInputs.forEach(input => {
+        input.addEventListener('change', (e) => {
+            if (e.target.value === 'with_worker') {
+                additionalWorkerWrap.style.display = 'block';
+                additionalWorkerNameInput.required = true;
+                additionalWorkerNameInput.focus();
+            } else {
+                additionalWorkerWrap.style.display = 'none';
+                additionalWorkerNameInput.required = false;
+                additionalWorkerNameInput.value = '';
+            }
+        });
+    });
+
     productSearch.addEventListener('focus', () => {
         if (productsDropdown) {
             productsDropdown.classList.add('open');
@@ -340,6 +391,13 @@
             installationTypesWrap.querySelectorAll('input[type="checkbox"]').forEach(cb => {
                 cb.checked = false;
             });
+        }
+        // Reset installation team
+        installationTeamInputs.forEach(input => { input.checked = false; });
+        if (additionalWorkerWrap) additionalWorkerWrap.style.display = 'none';
+        if (additionalWorkerNameInput) {
+            additionalWorkerNameInput.value = '';
+            additionalWorkerNameInput.required = false;
         }
     }
 
@@ -400,6 +458,7 @@
             // Basic fields
             document.getElementById('address').value = data.address || '';
             if (customerNameInput) customerNameInput.value = data.customer_name || '';
+            if (recipientNameInput) recipientNameInput.value = data.recipient_name || '';
             if (companyProjectInput) companyProjectInput.value = data.company_project || '';
             if (companyProjectToggle) companyProjectToggle.textContent = data.company_project || 'בחר חברת בניה/פרויקט';
             if (reportDateInput && data.timestamp) {
@@ -425,6 +484,18 @@
                         const cb = document.querySelector(`input[name="installation_types"][value="${t}"]`);
                         if (cb) cb.checked = true;
                     });
+                }
+            }
+
+            // Installation team
+            if (data.report_type === 'installation' && data.installation_team) {
+                const teamInput = document.querySelector(`input[name="installation_team"][value="${data.installation_team}"]`);
+                if (teamInput) {
+                    teamInput.checked = true;
+                    teamInput.dispatchEvent(new Event('change'));
+                }
+                if (data.installation_team === 'with_worker' && data.additional_worker_name) {
+                    if (additionalWorkerNameInput) additionalWorkerNameInput.value = data.additional_worker_name;
                 }
             }
 
@@ -479,6 +550,9 @@
                 reportDateInput.required = true;
                 setDefaultReportDateTime();
 
+                // Show recipient name (optional, delivery only)
+                recipientNameWrap.style.display = 'block';
+
                 // Hide installation details
                 installationDetails.style.display = 'none';
                 resetInstallationFields();
@@ -496,6 +570,10 @@
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
                 setDefaultReportDateTime();
+
+                // Hide recipient name (delivery only)
+                recipientNameWrap.style.display = 'none';
+                if (recipientNameInput) recipientNameInput.value = '';
 
                 // Clear delivery note error when switching to installation
                 deliveryNoteError.style.display = 'none';
@@ -774,8 +852,11 @@
 
         // Delivery / Installation extra fields
         const customerName = customerNameInput ? customerNameInput.value.trim() : '';
+        const recipientName = recipientNameInput ? recipientNameInput.value.trim() : '';
         const reportDateTime = reportDateInput ? reportDateInput.value : '';
         const installationTypes = reportType === 'installation' ? getSelectedInstallationTypes() : [];
+        const installationTeam = document.querySelector('input[name="installation_team"]:checked')?.value || '';
+        const additionalWorkerName = additionalWorkerNameInput ? additionalWorkerNameInput.value.trim() : '';
 
         if (!reportType) {
             showToast('יש לבחור סוג דוח', 'error');
@@ -807,6 +888,17 @@
                 if (firstCheckbox) firstCheckbox.focus();
                 return;
             }
+
+            if (!installationTeam) {
+                showToast('יש לבחור צוות התקנה', 'error');
+                return;
+            }
+
+            if (installationTeam === 'with_worker' && !additionalWorkerName) {
+                showToast('יש להזין שם עובד נוסף', 'error');
+                additionalWorkerNameInput.focus();
+                return;
+            }
         }
 
         if (selectedProducts.length === 0) {
@@ -819,13 +911,7 @@
             return;
         }
 
-        // Validate delivery note for delivery reports (MANDATORY)
-        if (reportType === 'delivery' && !uploadedDeliveryNote && !editMode) {
-            showToast('יש להעלות תעודת משלוח חתומה עבור דוח אספקה', 'error');
-            deliveryNoteError.style.display = 'flex';
-            deliveryNoteSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return;
-        }
+        // Delivery note is now optional - no validation required
 
         // Show loading
         submitBtn.querySelector('.btn-text').style.display = 'none';
@@ -860,12 +946,15 @@
         formData.append('notes', notes);
         formData.append('customer_name', customerName);
         formData.append('company_project', companyProjectInput ? companyProjectInput.value.trim() : '');
+        formData.append('recipient_name', recipientName);
         formData.append('report_datetime', reportDateTime);
         formData.append('products', JSON.stringify(selectedProducts));
 
         // Installation extra fields
         if (reportType === 'installation') {
             formData.append('installation_types', JSON.stringify(installationTypes));
+            formData.append('installation_team', installationTeam);
+            formData.append('additional_worker_name', additionalWorkerName);
         }
 
         // Add photos

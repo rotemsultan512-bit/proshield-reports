@@ -153,6 +153,19 @@
         </div>
     </div>
 
+    <!-- Delete Confirmation Modal -->
+    <div class="modal" id="deleteModal">
+        <div class="modal-content">
+            <h3>🗑️ מחיקת דוח</h3>
+            <p>האם אתה בטוח שברצונך למחוק את הדוח?</p>
+            <p class="warning">פעולה זו אינה ניתנת לביטול!</p>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" id="cancelDelete">ביטול</button>
+                <button class="btn btn-danger" id="confirmDelete">מחק</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Offline Reports Indicator -->
     <div class="offline-reports-banner" id="offlineReportsBanner" style="display:none;">
         <span>יש <span id="offlineCount">0</span> דוחות שממתינים לסנכרון</span>
@@ -318,38 +331,54 @@
         reportsEmpty.style.display = 'none';
 
         reportsList.innerHTML = reports.map(report => `
-            <a href="/report/${report.id}" class="report-card">
-                <div class="report-card-header">
-                    <span class="report-type ${report.report_type}">
-                        ${report.report_type === 'delivery' ? 'אספקה' : 'התקנה'}
-                    </span>
-                    <span class="report-status ${report.status}">
-                        ${report.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}
-                    </span>
-                </div>
-                <div class="report-card-body">
-                    <div class="report-address">
-                        <span>${escapeHtml(report.address)}</span>
+            <div class="report-card-wrapper">
+                <a href="/report/${report.id}" class="report-card">
+                    <div class="report-card-header">
+                        <span class="report-type ${report.report_type}">
+                            ${report.report_type === 'delivery' ? 'אספקה' : 'התקנה'}
+                        </span>
+                        <span class="report-status ${report.status}">
+                            ${report.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}
+                        </span>
                     </div>
-                    <div class="report-products">
-                        <span>${report.products.length} מוצרים</span>
+                    <div class="report-card-body">
+                        <div class="report-address">
+                            <span>${escapeHtml(report.address)}</span>
+                        </div>
+                        <div class="report-products">
+                            <span>${report.products.length} מוצרים</span>
+                        </div>
+                        {% if current_user.is_admin() %}
+                        <div class="report-user">
+                            <span>${escapeHtml(report.user_name)}</span>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% if current_user.is_admin() %}
-                    <div class="report-user">
-                        <span>${escapeHtml(report.user_name)}</span>
+                    <div class="report-card-footer">
+                        <span class="report-date">
+                            ${formatDate(report.timestamp)}
+                        </span>
+                        <span class="report-images">
+                            ${report.images.length} תמונות
+                        </span>
                     </div>
-                    {% endif %}
+                </a>
+                <div class="report-card-actions">
+                    <a href="/report/${report.id}/edit" class="btn-card-action btn-edit-action" title="ערוך">✏️</a>
+                    <button class="btn-card-action btn-delete-action" data-report-id="${report.id}" title="מחק">🗑️</button>
                 </div>
-                <div class="report-card-footer">
-                    <span class="report-date">
-                        ${formatDate(report.timestamp)}
-                    </span>
-                    <span class="report-images">
-                        ${report.images.length} תמונות
-                    </span>
-                </div>
-            </a>
+            </div>
         `).join('');
+
+        // Attach delete handlers
+        document.querySelectorAll('.btn-delete-action').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const reportId = btn.dataset.reportId;
+                showDeleteModal(reportId);
+            });
+        });
     }
 
     function updatePagination(total, pages, current) {
@@ -443,5 +472,58 @@
 
     // Make sync function globally available
     window.syncOfflineReports = syncOfflineReports;
+
+    // Delete modal
+    let deleteReportId = null;
+    const deleteModal = document.getElementById('deleteModal');
+    const cancelDeleteBtn = document.getElementById('cancelDelete');
+    const confirmDeleteBtn = document.getElementById('confirmDelete');
+
+    function showDeleteModal(reportId) {
+        deleteReportId = reportId;
+        deleteModal.classList.add('active');
+    }
+
+    cancelDeleteBtn.addEventListener('click', () => {
+        deleteModal.classList.remove('active');
+        deleteReportId = null;
+    });
+
+    deleteModal.addEventListener('click', (e) => {
+        if (e.target === deleteModal) {
+            deleteModal.classList.remove('active');
+            deleteReportId = null;
+        }
+    });
+
+    confirmDeleteBtn.addEventListener('click', async () => {
+        if (!deleteReportId) return;
+
+        confirmDeleteBtn.disabled = true;
+        confirmDeleteBtn.textContent = 'מוחק...';
+
+        try {
+            const response = await fetch(`/api/reports/${deleteReportId}`, {
+                method: 'DELETE'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('הדוח נמחק בהצלחה', 'success');
+                deleteModal.classList.remove('active');
+                loadReports();
+                loadStats();
+            } else {
+                showToast(data.error || 'שגיאה במחיקת הדוח', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        } finally {
+            confirmDeleteBtn.disabled = false;
+            confirmDeleteBtn.textContent = 'מחק';
+            deleteReportId = null;
+        }
+    });
 </script>
 {% endblock %}

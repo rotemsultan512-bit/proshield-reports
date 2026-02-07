@@ -64,6 +64,15 @@ def init_db():
                 if 'company_project' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN company_project VARCHAR(200)'))
 
+                if 'recipient_name' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN recipient_name VARCHAR(200)'))
+
+                if 'installation_team' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_team VARCHAR(20)'))
+
+                if 'additional_worker_name' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN additional_worker_name VARCHAR(200)'))
+
                 if 'installation_type' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN installation_type VARCHAR(500)'))
 
@@ -127,6 +136,9 @@ def init_db():
                 # Postgres supports IF NOT EXISTS
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS customer_name VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS company_project VARCHAR(200)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(200)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_team VARCHAR(20)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS additional_worker_name VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_type VARCHAR(500)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_types TEXT'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS protections_count INTEGER'))
@@ -490,7 +502,12 @@ def create_report():
         # Delivery / Installation extra fields
         customer_name = (request.form.get('customer_name') or '').strip()
         company_project = (request.form.get('company_project') or '').strip()
+        recipient_name = (request.form.get('recipient_name') or '').strip()
         report_datetime_raw = request.form.get('report_datetime')
+
+        # Installation team fields
+        installation_team = (request.form.get('installation_team') or '').strip()
+        additional_worker_name = (request.form.get('additional_worker_name') or '').strip()
 
         # installation_types is expected to be a JSON array string from the client
         installation_types_raw = request.form.get('installation_types')
@@ -547,6 +564,13 @@ def create_report():
             except (TypeError, ValueError):
                 protections_count = None
 
+            # Installation team validation
+            if not installation_team:
+                return jsonify({'success': False, 'error': 'יש לבחור צוות התקנה'}), 400
+
+            if installation_team == 'with_worker' and not additional_worker_name:
+                return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
+
         # Parse products
         try:
             products_data = json.loads(products_json)
@@ -561,6 +585,7 @@ def create_report():
             user_id=current_user.id,
             report_type=report_type,
             customer_name=customer_name,
+            recipient_name=recipient_name if report_type == 'delivery' else None,
             company_project=company_project or None,
             installation_type=installation_type_display if report_type == 'installation' else None,
             installation_types=(
@@ -569,6 +594,8 @@ def create_report():
                 else None
             ),
             protections_count=protections_count if report_type == 'installation' else None,
+            installation_team=installation_team if report_type == 'installation' else None,
+            additional_worker_name=additional_worker_name if report_type == 'installation' and installation_team == 'with_worker' else None,
             address=address,
             status=status,
             notes=notes,
@@ -600,48 +627,34 @@ def create_report():
                     change_type='report',
                     report_id=report.id,
                     user_id=current_user.id,
-                    notes=f"Report #{report.id} (offline sync)"
-                )
-
-                # Inventory: subtract reported quantity
-                apply_inventory_change(
-                    product_name=product['name'],
-                    quantity=-float(product['quantity']),
-                    unit=unit,
-                    change_type='report',
-                    report_id=report.id,
-                    user_id=current_user.id,
                     notes=f"Report #{report.id}"
                 )
 
-        # Handle delivery note upload (MANDATORY for delivery reports)
+        # Handle delivery note upload (OPTIONAL for delivery reports)
         if report_type == 'delivery':
             delivery_note = request.files.get('delivery_note')
-            if not delivery_note or not delivery_note.filename:
-                db.session.rollback()
-                return jsonify({'success': False, 'error': 'יש להעלות תעודת משלוח חתומה עבור דוח אספקה'}), 400
+            if delivery_note and delivery_note.filename:
+                if not allowed_file(delivery_note.filename, 'document'):
+                    db.session.rollback()
+                    return jsonify({'success': False, 'error': 'סוג קובץ לא חוקי. יש להעלות PDF או תמונה'}), 400
 
-            if not allowed_file(delivery_note.filename, 'document'):
-                db.session.rollback()
-                return jsonify({'success': False, 'error': 'סוג קובץ לא חוקי. יש להעלות PDF או תמונה'}), 400
+                # Check file size (10MB max)
+                delivery_note.seek(0, 2)  # Seek to end
+                file_size = delivery_note.tell()
+                delivery_note.seek(0)  # Reset to beginning
 
-            # Check file size (10MB max)
-            delivery_note.seek(0, 2)  # Seek to end
-            file_size = delivery_note.tell()
-            delivery_note.seek(0)  # Reset to beginning
+                if file_size > Config.MAX_DOCUMENT_SIZE:
+                    db.session.rollback()
+                    return jsonify({'success': False, 'error': 'קובץ תעודת המשלוח גדול מדי (מקסימום 10MB)'}), 400
 
-            if file_size > Config.MAX_DOCUMENT_SIZE:
-                db.session.rollback()
-                return jsonify({'success': False, 'error': 'קובץ תעודת המשלוח גדול מדי (מקסימום 10MB)'}), 400
-
-            doc_path = save_file(delivery_note, report.id, 'delivery_note')
-            if doc_path:
-                report_doc = ReportDocument(
-                    report_id=report.id,
-                    document_path=doc_path,
-                    original_filename=secure_filename(delivery_note.filename)
-                )
-                db.session.add(report_doc)
+                doc_path = save_file(delivery_note, report.id, 'delivery_note')
+                if doc_path:
+                    report_doc = ReportDocument(
+                        report_id=report.id,
+                        document_path=doc_path,
+                        original_filename=secure_filename(delivery_note.filename)
+                    )
+                    db.session.add(report_doc)
 
         # Handle image uploads
         images = request.files.getlist('images')
@@ -703,7 +716,11 @@ def update_report(report_id):
 
         customer_name = (request.form.get('customer_name') or '').strip()
         company_project = (request.form.get('company_project') or '').strip()
+        recipient_name = (request.form.get('recipient_name') or '').strip()
         report_datetime_raw = request.form.get('report_datetime')
+
+        installation_team = (request.form.get('installation_team') or '').strip()
+        additional_worker_name = (request.form.get('additional_worker_name') or '').strip()
 
         installation_types_raw = request.form.get('installation_types')
         installation_type_single = request.form.get('installation_type')
@@ -744,6 +761,13 @@ def update_report(report_id):
 
             installation_type_display = ', '.join([str(x) for x in installation_types_list if x])
 
+            # Installation team validation
+            if not installation_team:
+                return jsonify({'success': False, 'error': 'יש לבחור צוות התקנה'}), 400
+
+            if installation_team == 'with_worker' and not additional_worker_name:
+                return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
+
         # Parse products
         try:
             products_data = json.loads(products_json)
@@ -771,6 +795,7 @@ def update_report(report_id):
         # Update report fields
         report.report_type = report_type
         report.customer_name = customer_name
+        report.recipient_name = recipient_name if report_type == 'delivery' else None
         report.company_project = company_project or None
         report.address = address
         report.status = status
@@ -782,6 +807,8 @@ def update_report(report_id):
             else None
         )
         report.installation_type = installation_type_display if report_type == 'installation' else None
+        report.installation_team = installation_team if report_type == 'installation' else None
+        report.additional_worker_name = additional_worker_name if report_type == 'installation' and installation_team == 'with_worker' else None
 
         # Add new products + apply inventory
         for product in products_data:
@@ -827,6 +854,18 @@ def delete_report(report_id):
         return jsonify({'success': False, 'error': 'אין לך הרשאה למחוק דוח זה'}), 403
 
     try:
+        # Revert inventory changes for this report
+        for product in report.products:
+            apply_inventory_change(
+                product_name=product.product_name,
+                quantity=float(product.quantity),
+                unit=product.quantity_unit or 'unit',
+                change_type='report_delete',
+                report_id=report.id,
+                user_id=current_user.id,
+                notes=f"Delete Report #{report.id}"
+            )
+
         # Delete associated files
         report_dir = os.path.join(Config.UPLOAD_FOLDER, str(report_id))
         if os.path.exists(report_dir):
@@ -1177,49 +1216,254 @@ def get_stats():
 
 def _export_reports_to_excel(reports, filename_prefix):
     from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from io import BytesIO
     from flask import send_file
+    from collections import defaultdict
 
-    # Create Excel workbook
     wb = Workbook()
-    ws = wb.active
-    ws.title = "דוחות"
 
-    # Headers
+    # ---- Sheet 1: Detailed Reports ----
+    ws = wb.active
+    ws.title = "דוחות מפורטים"
+    ws.sheet_view.rightToLeft = True
+
+    # Styles
+    header_font = Font(name='Arial', bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill(start_color='2563EB', end_color='2563EB', fill_type='solid')
+    header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    cell_alignment = Alignment(horizontal='right', vertical='center', wrap_text=True)
+    number_alignment = Alignment(horizontal='center', vertical='center')
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    bold_font = Font(name='Arial', bold=True, size=11)
+    title_font = Font(name='Arial', bold=True, size=14)
+    subtitle_font = Font(name='Arial', bold=True, size=11, color='555555')
+
+    # Title row
+    ws.merge_cells('A1:K1')
+    title_cell = ws['A1']
+    title_cell.value = 'דוח עבודה מפורט'
+    title_cell.font = title_font
+    title_cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    # Subtitle with user name and date range
+    ws.merge_cells('A2:K2')
+    subtitle_cell = ws['A2']
+    user_name = reports[0].author.full_name if reports and reports[0].author else ''
+    if reports:
+        dates = [r.timestamp for r in reports if r.timestamp]
+        if dates:
+            min_date = min(dates).strftime('%d/%m/%Y')
+            max_date = max(dates).strftime('%d/%m/%Y')
+            subtitle_cell.value = f'עובד: {user_name} | תקופה: {min_date} - {max_date} | סה"כ דיווחים: {len(reports)}'
+        else:
+            subtitle_cell.value = f'עובד: {user_name} | סה"כ דיווחים: {len(reports)}'
+    subtitle_cell.font = subtitle_font
+    subtitle_cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    # Headers (row 4)
     headers = [
-        'מזהה',
-        'משתמש',
+        'תאריך',
+        'שעה',
         'סוג דוח',
         'שם לקוח',
         'חברת בניה/פרויקט',
-        'סוגי התקנה',
         'כתובת',
+        'מוצר',
+        'כמות',
+        'יחידת מידה',
         'סטטוס',
-        'תאריך',
-        'מוצרים',
         'הערות'
     ]
-    ws.append(headers)
 
-    # Data rows
-    for report in reports:
-        products_str = ', '.join([
-            f"{p.product_name} ({p.quantity}{' מ׳' if p.quantity_unit == 'meter' else ' יח׳'})"
-            for p in report.products
-        ])
-        ws.append([
-            report.id,
-            report.author.full_name if report.author else '',
-            'אספקה' if report.report_type == 'delivery' else 'התקנה',
-            report.customer_name or '',
-            report.company_project or '',
-            report.installation_type or '',
-            report.address,
-            'הושלם' if report.status == 'completed' else 'נדרש חזרה',
-            report.timestamp.strftime('%d/%m/%Y %H:%M') if report.timestamp else '',
-            products_str,
-            report.notes or ''
-        ])
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # Data rows - one row per product
+    row_num = 5
+    total_meter = defaultdict(float)
+    total_unit = defaultdict(float)
+
+    # Sort reports by date
+    sorted_reports = sorted(reports, key=lambda r: r.timestamp or datetime.min)
+
+    for report in sorted_reports:
+        products_list = list(report.products)
+        if not products_list:
+            # Report with no products - still show one row
+            for col_idx, val in enumerate([
+                report.timestamp.strftime('%d/%m/%Y') if report.timestamp else '',
+                report.timestamp.strftime('%H:%M') if report.timestamp else '',
+                'אספקה' if report.report_type == 'delivery' else 'התקנה',
+                report.customer_name or '',
+                report.company_project or '',
+                report.address or '',
+                '',
+                '',
+                '',
+                'הושלם' if report.status == 'completed' else 'נדרש חזרה',
+                report.notes or ''
+            ], 1):
+                cell = ws.cell(row=row_num, column=col_idx, value=val)
+                cell.alignment = cell_alignment if col_idx not in [8] else number_alignment
+                cell.border = thin_border
+            row_num += 1
+        else:
+            for p_idx, product in enumerate(products_list):
+                unit_label = 'מטר' if product.quantity_unit == 'meter' else 'יחידה'
+
+                # Track totals
+                if product.quantity_unit == 'meter':
+                    total_meter[product.product_name] += product.quantity
+                else:
+                    total_unit[product.product_name] += product.quantity
+
+                row_data = [
+                    report.timestamp.strftime('%d/%m/%Y') if report.timestamp else '',
+                    report.timestamp.strftime('%H:%M') if report.timestamp else '',
+                    'אספקה' if report.report_type == 'delivery' else 'התקנה',
+                    report.customer_name or '',
+                    report.company_project or '',
+                    report.address or '',
+                    product.product_name,
+                    product.quantity,
+                    unit_label,
+                    'הושלם' if report.status == 'completed' else 'נדרש חזרה',
+                    report.notes or '' if p_idx == 0 else ''
+                ]
+
+                for col_idx, val in enumerate(row_data, 1):
+                    cell = ws.cell(row=row_num, column=col_idx, value=val)
+                    cell.alignment = cell_alignment if col_idx not in [8] else number_alignment
+                    cell.border = thin_border
+
+                row_num += 1
+
+    # ---- Summary section ----
+    row_num += 1
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=9)
+    summary_title = ws.cell(row=row_num, column=1, value='סיכום כמויות')
+    summary_title.font = Font(name='Arial', bold=True, size=12)
+    summary_title.alignment = Alignment(horizontal='center', vertical='center')
+    summary_title.fill = PatternFill(start_color='F59E0B', end_color='F59E0B', fill_type='solid')
+    summary_title.font = Font(name='Arial', bold=True, size=12, color='FFFFFF')
+
+    row_num += 1
+    # Summary headers
+    for col_idx, header in enumerate(['מוצר', 'סה"כ מטר', 'סה"כ יחידות'], 1):
+        cell = ws.cell(row=row_num, column=col_idx, value=header)
+        cell.font = bold_font
+        cell.alignment = header_alignment
+        cell.border = thin_border
+        cell.fill = PatternFill(start_color='FEF3C7', end_color='FEF3C7', fill_type='solid')
+
+    row_num += 1
+    all_products = set(list(total_meter.keys()) + list(total_unit.keys()))
+    grand_total_meter = 0
+    grand_total_unit = 0
+
+    for product_name in sorted(all_products):
+        meters = total_meter.get(product_name, 0)
+        units = total_unit.get(product_name, 0)
+        grand_total_meter += meters
+        grand_total_unit += units
+
+        cell_name = ws.cell(row=row_num, column=1, value=product_name)
+        cell_name.alignment = cell_alignment
+        cell_name.border = thin_border
+
+        cell_meter = ws.cell(row=row_num, column=2, value=meters if meters else '')
+        cell_meter.alignment = number_alignment
+        cell_meter.border = thin_border
+
+        cell_units = ws.cell(row=row_num, column=3, value=units if units else '')
+        cell_units.alignment = number_alignment
+        cell_units.border = thin_border
+
+        row_num += 1
+
+    # Grand total row
+    grand_fill = PatternFill(start_color='DBEAFE', end_color='DBEAFE', fill_type='solid')
+    cell_total_label = ws.cell(row=row_num, column=1, value='סה"כ כללי')
+    cell_total_label.font = bold_font
+    cell_total_label.alignment = cell_alignment
+    cell_total_label.border = thin_border
+    cell_total_label.fill = grand_fill
+
+    cell_total_meter = ws.cell(row=row_num, column=2, value=grand_total_meter if grand_total_meter else '')
+    cell_total_meter.font = bold_font
+    cell_total_meter.alignment = number_alignment
+    cell_total_meter.border = thin_border
+    cell_total_meter.fill = grand_fill
+
+    cell_total_unit = ws.cell(row=row_num, column=3, value=grand_total_unit if grand_total_unit else '')
+    cell_total_unit.font = bold_font
+    cell_total_unit.alignment = number_alignment
+    cell_total_unit.border = thin_border
+    cell_total_unit.fill = grand_fill
+
+    # Column widths
+    col_widths = [14, 8, 10, 18, 22, 28, 28, 10, 12, 12, 20]
+    for i, width in enumerate(col_widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = width
+
+    # ---- Sheet 2: Daily Summary ----
+    ws2 = wb.create_sheet(title="סיכום יומי")
+    ws2.sheet_view.rightToLeft = True
+
+    ws2.merge_cells('A1:E1')
+    ws2['A1'].value = 'סיכום יומי'
+    ws2['A1'].font = title_font
+    ws2['A1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    daily_headers = ['תאריך', 'מספר דיווחים', 'אספקה', 'התקנה', 'פירוט']
+    for col_idx, header in enumerate(daily_headers, 1):
+        cell = ws2.cell(row=3, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # Group by date
+    daily_data = defaultdict(lambda: {'count': 0, 'delivery': 0, 'installation': 0, 'details': []})
+    for report in sorted_reports:
+        if report.timestamp:
+            date_key = report.timestamp.strftime('%d/%m/%Y')
+            daily_data[date_key]['count'] += 1
+            if report.report_type == 'delivery':
+                daily_data[date_key]['delivery'] += 1
+            else:
+                daily_data[date_key]['installation'] += 1
+            daily_data[date_key]['details'].append(
+                f"{report.customer_name or ''} - {report.address or ''}"
+            )
+
+    row_num2 = 4
+    for date_key in sorted(daily_data.keys(), key=lambda d: datetime.strptime(d, '%d/%m/%Y')):
+        data = daily_data[date_key]
+        details_str = ' | '.join(data['details'])
+
+        row_data = [date_key, data['count'], data['delivery'], data['installation'], details_str]
+        for col_idx, val in enumerate(row_data, 1):
+            cell = ws2.cell(row=row_num2, column=col_idx, value=val)
+            cell.alignment = cell_alignment if col_idx == 5 else number_alignment
+            cell.border = thin_border
+        row_num2 += 1
+
+    ws2.column_dimensions['A'].width = 14
+    ws2.column_dimensions['B'].width = 14
+    ws2.column_dimensions['C'].width = 10
+    ws2.column_dimensions['D'].width = 10
+    ws2.column_dimensions['E'].width = 50
 
     # Save to bytes
     output = BytesIO()

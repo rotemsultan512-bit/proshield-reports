@@ -41,6 +41,7 @@ class Report(db.Model):
 
     # Delivery extra field (relevant when report_type == 'delivery')
     customer_name = db.Column(db.String(200))
+    recipient_name = db.Column(db.String(200))  # שם מקבל הסחורה
 
     # Optional: Company / Project name
     company_project = db.Column(db.String(200))
@@ -55,6 +56,8 @@ class Report(db.Model):
     installation_type = db.Column(db.String(500))
     installation_types = db.Column(db.Text)  # JSON array string
     protections_count = db.Column(db.Integer)
+    installation_team = db.Column(db.String(20))  # 'solo' or 'with_worker'
+    additional_worker_name = db.Column(db.String(200))
 
     synced = db.Column(db.Boolean, default=True)  # For offline support
 
@@ -70,10 +73,13 @@ class Report(db.Model):
             'user_name': self.author.full_name if self.author else '',
             'report_type': self.report_type,
             'customer_name': self.customer_name,
+            'recipient_name': self.recipient_name,
             'company_project': self.company_project,
             'installation_type': self.installation_type,
             'installation_types': self.installation_types,
             'protections_count': self.protections_count,
+            'installation_team': self.installation_team,
+            'additional_worker_name': self.additional_worker_name,
             'address': self.address,
             'status': self.status,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
