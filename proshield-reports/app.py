@@ -866,6 +866,9 @@ def delete_report(report_id):
                 notes=f"Delete Report #{report.id}"
             )
 
+        # Clear inventory transaction references to this report so FK constraint won't block delete
+        InventoryTransaction.query.filter_by(report_id=report.id).delete()
+
         # Delete associated files
         report_dir = os.path.join(Config.UPLOAD_FOLDER, str(report_id))
         if os.path.exists(report_dir):

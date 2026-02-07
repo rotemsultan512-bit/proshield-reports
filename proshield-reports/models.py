@@ -65,6 +65,7 @@ class Report(db.Model):
     products = db.relationship('ReportProduct', backref='report', lazy='dynamic', cascade='all, delete-orphan')
     images = db.relationship('ReportImage', backref='report', lazy='dynamic', cascade='all, delete-orphan')
     documents = db.relationship('ReportDocument', backref='report', lazy='dynamic', cascade='all, delete-orphan')
+    inventory_transactions = db.relationship('InventoryTransaction', backref='report', lazy='dynamic', cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
