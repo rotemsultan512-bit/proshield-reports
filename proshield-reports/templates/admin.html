@@ -185,6 +185,19 @@
     </div>
 </div>
 
+<!-- Delete Report Modal -->
+<div class="modal" id="deleteReportModal">
+    <div class="modal-content">
+        <h3>🗑️ מחיקת דוח</h3>
+        <p>האם את בטוחה שברצונך למחוק את הדוח הזה?</p>
+        <p class="warning">פעולה זו אינה ניתנת לביטול!</p>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" id="cancelDeleteReport">ביטול</button>
+            <button class="btn btn-danger" id="confirmDeleteReport">מחק</button>
+        </div>
+    </div>
+</div>
+
 <!-- Delete User Modal -->
 <div class="modal" id="deleteUserModal">
     <div class="modal-content">
@@ -651,6 +664,54 @@
         }
     });
 
+    // Delete report logic
+    let deleteReportId = null;
+    let deleteReportUserId = null;
+    let deleteReportUserName = null;
+
+    document.getElementById('cancelDeleteReport')?.addEventListener('click', () => {
+        document.getElementById('deleteReportModal').classList.remove('active');
+        deleteReportId = null;
+    });
+
+    document.getElementById('deleteReportModal')?.addEventListener('click', (e) => {
+        if (e.target === document.getElementById('deleteReportModal')) {
+            document.getElementById('deleteReportModal').classList.remove('active');
+            deleteReportId = null;
+        }
+    });
+
+    document.getElementById('confirmDeleteReport')?.addEventListener('click', async () => {
+        if (!deleteReportId) return;
+        const btn = document.getElementById('confirmDeleteReport');
+        btn.disabled = true;
+        btn.textContent = 'מוחק...';
+        try {
+            const response = await fetch(`/api/reports/${deleteReportId}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+            if (data.success) {
+                showToast('הדוח נמחק בהצלחה', 'success');
+                document.getElementById('deleteReportModal').classList.remove('active');
+                // Refresh the reports list
+                if (deleteReportUserId && deleteReportUserName) {
+                    openUserReports(deleteReportUserId, deleteReportUserName);
+                }
+                loadStats();
+            } else {
+                showToast(data.error || 'שגיאה במחיקת דוח', 'error');
+            }
+        } catch (error) {
+            showToast('שגיאת תקשורת', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'מחק';
+            deleteReportId = null;
+        }
+    });
+
     // User reports modal
     document.getElementById('closeUserReports')?.addEventListener('click', () => {
         document.getElementById('userReportsModal').classList.remove('active');
@@ -678,11 +739,26 @@
             }
 
             list.innerHTML = reports.map(r => `
-                <a class="user-report-item" href="/report/${r.id}">
-                    <span class="report-title">${r.report_type === 'delivery' ? 'אספקה' : 'התקנה'} • ${escapeHtml(r.address || '')}</span>
-                    <span class="report-meta">${formatDate(r.timestamp)} • ${r.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}</span>
-                </a>
+                <div class="user-report-row">
+                    <a class="user-report-item" href="/report/${r.id}">
+                        <span class="report-title">${r.report_type === 'delivery' ? 'אספקה' : 'התקנה'} • ${escapeHtml(r.address || '')}</span>
+                        <span class="report-meta">${formatDate(r.timestamp)} • ${r.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}</span>
+                    </a>
+                    <button class="btn btn-ghost btn-sm btn-delete-report" data-report-id="${r.id}" title="מחק דוח">🗑️</button>
+                </div>
             `).join('');
+
+            // Attach delete report handlers
+            list.querySelectorAll('.btn-delete-report').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteReportId = btn.dataset.reportId;
+                    deleteReportUserId = userId;
+                    deleteReportUserName = userName;
+                    document.getElementById('deleteReportModal').classList.add('active');
+                });
+            });
         } catch (error) {
             list.innerHTML = '<div class="inventory-empty">שגיאת טעינה</div>';
         }
