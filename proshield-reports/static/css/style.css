@@ -1676,6 +1676,112 @@ a:hover {
     height: 18px;
 }
 
+/* Custom Manual Entry Sections */
+.custom-entry-section {
+    margin-top: var(--space-2);
+    border-top: 1px dashed var(--border);
+    padding-top: var(--space-2);
+}
+
+.custom-toggle span {
+    color: var(--brand-secondary);
+    font-weight: 600;
+}
+
+.custom-entry-fields {
+    padding: var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+    margin-top: var(--space-2);
+}
+
+.custom-entry-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-bottom: var(--space-2);
+}
+
+.custom-entry-input {
+    flex: 1;
+    padding: var(--space-2) var(--space-3);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.custom-entry-input:focus {
+    border-color: var(--brand-primary);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(249, 160, 34, 0.15);
+}
+
+.custom-add-btn {
+    white-space: nowrap;
+    padding: var(--space-2) var(--space-3) !important;
+    font-size: var(--font-size-sm) !important;
+}
+
+.custom-entries-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.custom-entry-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    background: var(--brand-primary);
+    color: var(--white);
+    border-radius: 20px;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+.custom-entry-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: rgba(255,255,255,0.3);
+    color: var(--white);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.custom-entry-remove:hover {
+    background: rgba(255,255,255,0.5);
+}
+
+.custom-product-section {
+    padding: var(--space-3);
+    border-top: 1px dashed var(--border);
+    margin-top: var(--space-2);
+}
+
+.custom-entry-header {
+    cursor: pointer;
+    color: var(--brand-secondary);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+    padding: var(--space-2) 0;
+    user-select: none;
+}
+
+.custom-entry-header:hover {
+    color: var(--brand-primary);
+}
+
 .quantity-row {
     display: grid;
     grid-template-columns: 1fr 110px;
