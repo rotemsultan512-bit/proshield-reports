@@ -120,6 +120,19 @@
                             <input type="checkbox" name="installation_types" value="הגנת מעקות">
                             <span>הגנת מעקות</span>
                         </label>
+                        <div class="custom-entry-section">
+                            <label class="install-type-item custom-toggle">
+                                <input type="checkbox" id="customInstallationToggle">
+                                <span>אחר (הזן ידנית)</span>
+                            </label>
+                            <div class="custom-entry-fields" id="customInstallationFields" style="display:none;">
+                                <div class="custom-entry-row">
+                                    <input type="text" id="customInstallationInput" class="custom-entry-input" placeholder="הזן סוג התקנה...">
+                                    <button type="button" class="btn btn-sm btn-primary custom-add-btn" id="addCustomInstallation">+ הוסף</button>
+                                </div>
+                                <div class="custom-entries-list" id="customInstallationList"></div>
+                            </div>
+                        </div>
                     </div>
                     <small>ניתן לבחור יותר מסוג אחד</small>
                 </div>
@@ -174,6 +187,25 @@
                             </div>
                         </label>
                         {% endfor %}
+                    </div>
+                    <div class="custom-entry-section custom-product-section">
+                        <div class="custom-entry-header" id="customProductToggleBtn">
+                            <span>+ הוסף מוצר שלא ברשימה</span>
+                        </div>
+                        <div class="custom-entry-fields" id="customProductFields" style="display:none;">
+                            <div class="custom-entry-row">
+                                <input type="text" id="customProductNameInput" class="custom-entry-input" placeholder="שם המוצר...">
+                            </div>
+                            <div class="custom-entry-row">
+                                <input type="number" id="customProductQuantityInput" step="0.1" min="0" placeholder="כמות" class="custom-entry-input quantity-input">
+                                <select id="customProductUnitInput" class="quantity-unit">
+                                    <option value="meter" selected>מטר</option>
+                                    <option value="unit">יחידה</option>
+                                </select>
+                                <button type="button" class="btn btn-sm btn-primary custom-add-btn" id="addCustomProduct">+ הוסף</button>
+                            </div>
+                            <div class="custom-entries-list" id="customProductList"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -336,6 +368,10 @@
     let uploadedPhotos = [];
     let uploadedDeliveryNote = null;
 
+    // Custom manual entries
+    let customInstallationTypes = [];
+    let customProducts = [];
+
     const editMode = reportForm.dataset.editMode === 'true';
     const editReportId = reportForm.dataset.reportId;
 
@@ -392,6 +428,15 @@
                 cb.checked = false;
             });
         }
+        // Reset custom installation types
+        customInstallationTypes = [];
+        const customInstList = document.getElementById('customInstallationList');
+        if (customInstList) customInstList.innerHTML = '';
+        const customInstToggle = document.getElementById('customInstallationToggle');
+        if (customInstToggle) customInstToggle.checked = false;
+        const customInstFields = document.getElementById('customInstallationFields');
+        if (customInstFields) customInstFields.style.display = 'none';
+
         // Reset installation team
         installationTeamInputs.forEach(input => { input.checked = false; });
         if (additionalWorkerWrap) additionalWorkerWrap.style.display = 'none';
@@ -481,9 +526,21 @@
                 }
                 if (Array.isArray(types)) {
                     types.forEach(t => {
-                        const cb = document.querySelector(`input[name="installation_types"][value="${t}"]`);
-                        if (cb) cb.checked = true;
+                        const cb = document.querySelector(`input[name="installation_types"][value="${CSS.escape(t)}"]`);
+                        if (cb) {
+                            cb.checked = true;
+                        } else {
+                            // Custom installation type not in predefined list
+                            customInstallationTypes.push(t);
+                        }
                     });
+                    if (customInstallationTypes.length > 0) {
+                        const toggle = document.getElementById('customInstallationToggle');
+                        if (toggle) toggle.checked = true;
+                        const fields = document.getElementById('customInstallationFields');
+                        if (fields) fields.style.display = 'block';
+                        renderCustomInstallationTypes();
+                    }
                 }
             }
 
@@ -502,7 +559,7 @@
             // Products
             if (Array.isArray(data.products)) {
                 data.products.forEach(p => {
-                    const checkbox = document.querySelector(`input[name="products"][value="${p.product_name}"]`);
+                    const checkbox = document.querySelector(`input[name="products"][value="${CSS.escape(p.product_name)}"]`);
                     if (checkbox) {
                         checkbox.checked = true;
                         const item = checkbox.closest('.product-item');
@@ -512,8 +569,20 @@
                         if (quantityDiv) quantityDiv.style.display = 'flex';
                         if (quantityInput) quantityInput.value = p.quantity ?? '';
                         if (unitSelect) unitSelect.value = p.quantity_unit || 'meter';
+                    } else {
+                        // Custom product not in predefined list
+                        customProducts.push({
+                            name: p.product_name,
+                            quantity: p.quantity || 0,
+                            unit: p.quantity_unit || 'meter'
+                        });
                     }
                 });
+                if (customProducts.length > 0) {
+                    const cpFields = document.getElementById('customProductFields');
+                    if (cpFields) cpFields.style.display = 'block';
+                    renderCustomProducts();
+                }
                 updateSelectedProducts();
             }
 
@@ -526,8 +595,9 @@
     }
 
     function getSelectedInstallationTypes() {
-        return Array.from(document.querySelectorAll('input[name="installation_types"]:checked'))
+        const checked = Array.from(document.querySelectorAll('input[name="installation_types"]:checked'))
             .map(cb => cb.value);
+        return checked.concat(customInstallationTypes);
     }
 
     // Report type change handler
@@ -640,6 +710,15 @@
                     unit: unitSelect ? unitSelect.value : 'unit'
                 });
             }
+        });
+
+        // Add custom (manual) products
+        customProducts.forEach(cp => {
+            selectedProducts.push({
+                name: cp.name,
+                quantity: cp.quantity,
+                unit: cp.unit
+            });
         });
 
         if (selectedProducts.length === 0) {
@@ -1012,6 +1091,139 @@
         const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
         offlineReports.push(report);
         localStorage.setItem('offlineReports', JSON.stringify(offlineReports));
+    }
+
+    // ============ Custom Installation Types ============
+    const customInstallationToggle = document.getElementById('customInstallationToggle');
+    const customInstallationFields = document.getElementById('customInstallationFields');
+    const customInstallationInput = document.getElementById('customInstallationInput');
+    const addCustomInstallationBtn = document.getElementById('addCustomInstallation');
+    const customInstallationList = document.getElementById('customInstallationList');
+
+    customInstallationToggle?.addEventListener('change', () => {
+        customInstallationFields.style.display = customInstallationToggle.checked ? 'block' : 'none';
+        if (customInstallationToggle.checked) {
+            customInstallationInput.focus();
+        }
+    });
+
+    function addCustomInstallationType(value) {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return;
+        if (customInstallationTypes.includes(trimmed)) {
+            showToast('סוג התקנה זה כבר נוסף', 'warning');
+            return;
+        }
+        customInstallationTypes.push(trimmed);
+        renderCustomInstallationTypes();
+    }
+
+    addCustomInstallationBtn?.addEventListener('click', () => {
+        addCustomInstallationType(customInstallationInput.value);
+        customInstallationInput.value = '';
+        customInstallationInput.focus();
+    });
+
+    customInstallationInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addCustomInstallationType(customInstallationInput.value);
+            customInstallationInput.value = '';
+        }
+    });
+
+    function renderCustomInstallationTypes() {
+        if (!customInstallationList) return;
+        customInstallationList.innerHTML = customInstallationTypes.map((t, idx) => `
+            <div class="custom-entry-tag">
+                <span>${escapeHtml(t)}</span>
+                <button type="button" class="custom-entry-remove" data-index="${idx}">&times;</button>
+            </div>
+        `).join('');
+
+        customInstallationList.querySelectorAll('.custom-entry-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const index = parseInt(btn.dataset.index);
+                customInstallationTypes.splice(index, 1);
+                renderCustomInstallationTypes();
+            });
+        });
+    }
+
+    // ============ Custom Products ============
+    const customProductToggleBtn = document.getElementById('customProductToggleBtn');
+    const customProductFields = document.getElementById('customProductFields');
+    const customProductNameInput = document.getElementById('customProductNameInput');
+    const customProductQuantityInput = document.getElementById('customProductQuantityInput');
+    const customProductUnitInput = document.getElementById('customProductUnitInput');
+    const addCustomProductBtn = document.getElementById('addCustomProduct');
+    const customProductList = document.getElementById('customProductList');
+
+    customProductToggleBtn?.addEventListener('click', () => {
+        const isVisible = customProductFields.style.display !== 'none';
+        customProductFields.style.display = isVisible ? 'none' : 'block';
+        if (!isVisible) customProductNameInput.focus();
+    });
+
+    function addCustomProduct(name, quantity, unit) {
+        const trimmedName = (name || '').trim();
+        if (!trimmedName) {
+            showToast('יש להזין שם מוצר', 'warning');
+            return;
+        }
+        if (!quantity || parseFloat(quantity) <= 0) {
+            showToast('יש להזין כמות', 'warning');
+            return;
+        }
+        if (customProducts.some(p => p.name === trimmedName)) {
+            showToast('מוצר זה כבר נוסף', 'warning');
+            return;
+        }
+        customProducts.push({
+            name: trimmedName,
+            quantity: parseFloat(quantity),
+            unit: unit || 'meter'
+        });
+        renderCustomProducts();
+        updateSelectedProducts();
+    }
+
+    addCustomProductBtn?.addEventListener('click', () => {
+        addCustomProduct(
+            customProductNameInput.value,
+            customProductQuantityInput.value,
+            customProductUnitInput.value
+        );
+        customProductNameInput.value = '';
+        customProductQuantityInput.value = '';
+        customProductUnitInput.value = 'meter';
+        customProductNameInput.focus();
+    });
+
+    customProductQuantityInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addCustomProductBtn.click();
+        }
+    });
+
+    function renderCustomProducts() {
+        if (!customProductList) return;
+        customProductList.innerHTML = customProducts.map((p, idx) => `
+            <div class="custom-entry-tag">
+                <span>${escapeHtml(p.name)} - ${p.quantity} ${p.unit === 'meter' ? 'מ׳' : 'יח׳'}</span>
+                <button type="button" class="custom-entry-remove" data-index="${idx}">&times;</button>
+            </div>
+        `).join('');
+
+        customProductList.querySelectorAll('.custom-entry-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const index = parseInt(btn.dataset.index);
+                customProducts.splice(index, 1);
+                renderCustomProducts();
+                updateSelectedProducts();
+            });
+        });
     }
 
     function escapeHtml(text) {
