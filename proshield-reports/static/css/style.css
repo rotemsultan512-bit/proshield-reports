@@ -1704,12 +1704,13 @@ a:hover {
 
 .custom-entry-input {
     flex: 1;
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-3);
     border: 2px solid var(--border);
     border-radius: var(--radius-md);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-base);
     background: var(--surface);
     color: var(--text);
+    min-height: 44px;
 }
 
 .custom-entry-input:focus {
@@ -1718,10 +1719,43 @@ a:hover {
     box-shadow: 0 0 0 3px rgba(249, 160, 34, 0.15);
 }
 
+/* quantity field inside custom-entry-row – should NOT stretch */
+.custom-entry-row input.quantity-input {
+    flex: 0 0 80px;
+    min-height: 44px;
+    padding: var(--space-3) var(--space-2);
+    font-size: var(--font-size-base);
+    text-align: center;
+    border: 2px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text);
+}
+
+.custom-entry-row input.quantity-input:focus {
+    border-color: var(--brand-primary);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(249, 160, 34, 0.15);
+}
+
+/* unit select inside custom-entry-row */
+.custom-entry-row .quantity-unit {
+    flex: 0 0 90px;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-2);
+    font-size: var(--font-size-base);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+}
+
 .custom-add-btn {
     white-space: nowrap;
-    padding: var(--space-2) var(--space-3) !important;
-    font-size: var(--font-size-sm) !important;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-4) !important;
+    font-size: var(--font-size-base) !important;
 }
 
 .custom-entries-list {
