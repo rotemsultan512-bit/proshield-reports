@@ -1,6 +1,7 @@
 """Focused regression checks for account setup, CSRF, and attachment access."""
 
 import atexit
+from datetime import datetime, timedelta
 from io import BytesIO
 import json
 import os
@@ -25,7 +26,7 @@ os.environ.pop('RENDER', None)
 os.environ.pop('RENDER_SERVICE_ID', None)
 
 from app import app  # noqa: E402
-from models import db, InventoryItem, InventoryTransaction, Report, ReportImage, User  # noqa: E402
+from models import db, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportImage, User  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -70,9 +71,13 @@ class SecurityTests(unittest.TestCase):
 
     def client_as(self, user_id):
         client = app.test_client()
+        with app.app_context():
+            user = db.session.get(User, user_id)
+            auth_version = user.session_version or 0
         with client.session_transaction() as session:
             session['_user_id'] = str(user_id)
             session['_fresh'] = True
+            session['auth_version'] = auth_version
         return client
 
     def csrf_for(self, client):
@@ -167,6 +172,97 @@ class SecurityTests(unittest.TestCase):
                         {'username': 'owner', 'password': None}):
             response = client.post('/login', json=payload, headers=headers)
             self.assertEqual(response.status_code, 400)
+
+    def test_employee_recovery_code_is_one_use_and_revokes_old_sessions(self):
+        with app.app_context():
+            worker = User(username='recovery-worker', full_name='Recovery Worker', role='user')
+            worker.set_password('old-pass-8')
+            db.session.add(worker)
+            db.session.commit()
+            worker_id = worker.id
+
+        admin = self.client_as(self.admin_id)
+        admin_headers = {'X-CSRFToken': self.csrf_for(admin)}
+        worker_client = self.client_as(worker_id)
+        worker_headers = {'X-CSRFToken': self.csrf_for(worker_client)}
+        issue_url = f'/api/users/{worker_id}/password-reset'
+        self.assertEqual(worker_client.post(issue_url, json={'admin_password': 'admin-password'},
+                                            headers=worker_headers).status_code, 403)
+        self.assertEqual(admin.post(issue_url, json={'admin_password': 'wrong'},
+                                    headers=admin_headers).status_code, 403)
+        issued = admin.post(issue_url, json={'admin_password': 'admin-password'},
+                            headers=admin_headers)
+        self.assertEqual(issued.status_code, 200)
+        code = issued.json['code']
+        with app.app_context():
+            token = PasswordResetToken.query.filter_by(user_id=worker_id).one()
+            self.assertNotEqual(token.token_hash, code)
+            self.assertGreater(token.expires_at, datetime.utcnow())
+
+        anonymous = app.test_client()
+        token = re.search(r'name="csrf-token" content="([^"]+)"',
+                          anonymous.get('/reset-password').get_data(as_text=True)).group(1)
+        headers = {'X-CSRFToken': token}
+        payload = {'username': 'recovery-worker', 'code': code, 'new_password': 'new-pass'}
+        self.assertEqual(anonymous.post('/api/password-reset', json=payload).status_code, 400)
+        self.assertEqual(anonymous.post('/api/password-reset', json={**payload, 'code': 'bad-code'},
+                                        headers=headers).status_code, 400)
+        self.assertEqual(anonymous.post('/api/password-reset', json={**payload, 'new_password': '1234567'},
+                                        headers=headers).status_code, 400)
+        self.assertEqual(anonymous.post('/api/password-reset', json=payload, headers=headers).status_code, 200)
+        self.assertEqual(anonymous.post('/api/password-reset', json=payload, headers=headers).status_code, 400)
+        self.assertEqual(worker_client.get('/settings').status_code, 302)
+
+        new_login = app.test_client()
+        login_token = re.search(r'name="csrf-token" content="([^"]+)"',
+                                new_login.get('/login').get_data(as_text=True)).group(1)
+        new_headers = {'X-CSRFToken': login_token}
+        self.assertEqual(new_login.post('/login', json={'username': 'recovery-worker',
+                                                       'password': 'old-pass-8'}, headers=new_headers).status_code, 401)
+        self.assertEqual(new_login.post('/login', json={'username': 'recovery-worker',
+                                                       'password': 'new-pass'}, headers=new_headers).status_code, 200)
+
+    def test_recovery_code_replacement_expiry_and_eight_character_policy(self):
+        admin = self.client_as(self.admin_id)
+        headers = {'X-CSRFToken': self.csrf_for(admin)}
+        too_short = admin.post('/api/users', json={
+            'username': 'eight-char-worker', 'full_name': 'Eight Char Worker',
+            'password': '1234567', 'role': 'user'
+        }, headers=headers)
+        self.assertEqual(too_short.status_code, 400)
+        created = admin.post('/api/users', json={
+            'username': 'eight-char-worker', 'full_name': 'Eight Char Worker',
+            'password': '12345678', 'role': 'user'
+        }, headers=headers)
+        self.assertEqual(created.status_code, 200)
+        with app.app_context():
+            worker_id = User.query.filter_by(username='eight-char-worker').one().id
+
+        issue_url = f'/api/users/{worker_id}/password-reset'
+        first = admin.post(issue_url, json={'admin_password': 'admin-password'}, headers=headers).json['code']
+        second = admin.post(issue_url, json={'admin_password': 'admin-password'}, headers=headers).json['code']
+        anon = app.test_client()
+        token = re.search(r'name="csrf-token" content="([^"]+)"',
+                          anon.get('/reset-password').get_data(as_text=True)).group(1)
+        reset_headers = {'X-CSRFToken': token}
+        self.assertEqual(anon.post('/api/password-reset', json={
+            'username': 'eight-char-worker', 'code': first, 'new_password': 'new-pass'
+        }, headers=reset_headers).status_code, 400)
+        with app.app_context():
+            stored = PasswordResetToken.query.filter_by(user_id=worker_id).one()
+            stored.expires_at = datetime.utcnow() - timedelta(seconds=1)
+            db.session.commit()
+        self.assertEqual(anon.post('/api/password-reset', json={
+            'username': 'eight-char-worker', 'code': second, 'new_password': 'new-pass'
+        }, headers=reset_headers).status_code, 400)
+
+        worker = self.client_as(worker_id)
+        change_headers = {'X-CSRFToken': self.csrf_for(worker)}
+        changed = worker.post('/api/user/password', json={
+            'current_password': '12345678', 'new_password': 'abcdefgh'
+        }, headers=change_headers)
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(worker.get('/settings').status_code, 200)
 
     def test_custom_inventory_item_is_visible(self):
         with app.app_context():

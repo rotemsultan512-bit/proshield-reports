@@ -14,10 +14,10 @@ def main():
 
         username = input('Admin username: ').strip()
         full_name = input('Full name: ').strip()
-        password = getpass('New password (12+ characters): ')
+        password = getpass('New password (8+ characters): ')
         confirmation = getpass('Confirm password: ')
 
-        if not username or not full_name or len(password) < 12 or password != confirmation:
+        if not username or not full_name or len(password) < 8 or password != confirmation:
             raise SystemExit('Account not created: check the name and password requirements.')
         if User.query.filter_by(username=username).first():
             raise SystemExit('Account not created: username already exists.')

@@ -11,6 +11,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
+    session_version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     role = db.Column(db.String(20), nullable=False, default='user')  # 'admin' or 'user'
     full_name = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -40,6 +41,15 @@ class LoginAttempt(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     __table_args__ = (db.Index('ix_login_attempts_key_created', 'client_key', 'created_at'),)
+
+
+class PasswordResetToken(db.Model):
+    __tablename__ = 'password_reset_tokens'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
 
 
 class Report(db.Model):
