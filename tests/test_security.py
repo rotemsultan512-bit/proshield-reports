@@ -28,7 +28,7 @@ os.environ.pop('RENDER', None)
 os.environ.pop('RENDER_SERVICE_ID', None)
 
 from app import app  # noqa: E402
-from models import db, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportImage, User  # noqa: E402
+from models import db, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportDocument, ReportImage, User  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -338,6 +338,58 @@ class SecurityTests(unittest.TestCase):
         with owner.get(copied_url) as copied:
             self.assertEqual(copied.status_code, 200)
         self.assertEqual(other.get(copied_url).status_code, 404)
+
+    def test_delivery_note_library_combines_sources_without_duplicate_and_restricts_classification(self):
+        with app.app_context():
+            report = Report(user_id=self.owner_id, report_type='delivery', customer_name='Library Contractor',
+                            company_project='Library Builder', address='Library Street 4', status='completed')
+            db.session.add(report)
+            db.session.flush()
+            note = DeliveryNote(employee_id=self.owner_id, created_by_id=self.admin_id,
+                                customer_name='Library Contractor', company_project='Library Builder',
+                                address='Library Street 4', original_filename='library-original.png',
+                                original_path='library/original.png', signed_path='library/signed.pdf',
+                                signed_at=datetime.utcnow(), report_id=report.id)
+            db.session.add(note)
+            db.session.flush()
+            copied_name = f'delivery-note-{note.id}-signed.pdf'
+            db.session.add_all([
+                ReportDocument(report_id=report.id, document_path='library/copied.pdf',
+                               original_filename=copied_name),
+                ReportDocument(report_id=report.id, document_path='library/camera.png',
+                               original_filename='camera-scan.png'),
+            ])
+            db.session.commit()
+            note_id, report_id = note.id, report.id
+            library_files = Path(os.environ['UPLOAD_FOLDER']) / 'library'
+            library_files.mkdir(parents=True, exist_ok=True)
+            for name in ('original.png', 'signed.pdf', 'copied.pdf', 'camera.png'):
+                (library_files / name).write_bytes(b'fixture')
+
+        admin = self.client_as(self.admin_id)
+        page = admin.get('/delivery-notes/library?company=Library+Builder')
+        self.assertEqual(page.status_code, 200, page.data[:1000])
+        html = page.get_data(as_text=True)
+        self.assertIn('library-original.png', html)
+        self.assertIn('camera-scan.png', html)
+        self.assertNotIn(copied_name, html)
+        self.assertIn('Library Contractor', html)
+        self.assertIn('חתומה', html)
+        self.assertEqual(admin.get('/delivery-notes/library?company=No+Match').status_code, 200)
+        self.assertNotIn('library-original.png', admin.get('/delivery-notes/library?company=No+Match').get_data(as_text=True))
+
+        owner = self.client_as(self.owner_id)
+        self.assertEqual(owner.get('/delivery-notes/library').status_code, 403)
+        self.assertEqual(owner.post('/delivery-notes/library/classify', data={
+            'kind': 'assigned', 'record_id': note_id, 'company_project': 'Other Builder'
+        }, headers={'X-CSRFToken': self.csrf_for(owner)}).status_code, 403)
+        changed = admin.post('/delivery-notes/library/classify', data={
+            'kind': 'assigned', 'record_id': note_id, 'company_project': 'Updated Builder'
+        }, headers={'X-CSRFToken': self.csrf_for(admin)})
+        self.assertEqual(changed.status_code, 302)
+        with app.app_context():
+            self.assertEqual(db.session.get(DeliveryNote, note_id).company_project, 'Updated Builder')
+            self.assertEqual(db.session.get(Report, report_id).company_project, 'Updated Builder')
 
     def test_delivery_note_assignment_rejects_invalid_file_and_can_cancel_pending(self):
         admin = self.client_as(self.admin_id)

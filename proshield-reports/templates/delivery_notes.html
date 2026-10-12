@@ -10,6 +10,7 @@
             <h1>תעודות משלוח</h1>
             <p class="page-intro">{% if current_user.is_admin() %}מעלים תעודה ומשייכים לעובד. החתימה והתעודה החתומה נשמרות כאן.{% else %}פותחים את התעודה שקיבלת, מציגים למקבל הסחורה ומחתימים אותו בטלפון.{% endif %}</p>
         </div>
+        {% if current_user.is_admin() %}<a class="btn btn-secondary" href="{{ url_for('delivery_note_library') }}">כל תעודות המשלוח ←</a>{% endif %}
     </div>
 
     {% if current_user.is_admin() %}
@@ -30,6 +31,11 @@
             <div class="form-group">
                 <label for="deliveryCustomer">שם לקוח</label>
                 <input id="deliveryCustomer" name="customer_name" maxlength="200" required placeholder="למי מספקים?">
+            </div>
+            <div class="form-group">
+                <label for="deliveryCompany">חברת בנייה / פרויקט</label>
+                <input id="deliveryCompany" name="company_project" list="deliveryProjectOptions" maxlength="200" placeholder="בחרו או הקלידו שם חברה">
+                <datalist id="deliveryProjectOptions">{% for project in projects %}<option value="{{ project.name }}">{% endfor %}</datalist>
             </div>
             <div class="form-group">
                 <label for="deliveryAddress">כתובת אספקה</label>

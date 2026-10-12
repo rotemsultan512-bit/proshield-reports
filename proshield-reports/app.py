@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import zipfile
 from sqlalchemy import or_, text
+from sqlalchemy.orm import joinedload
 import os
 import uuid
 import json
@@ -90,6 +91,9 @@ def init_db():
                 ]
                 if 'session_version' not in user_columns:
                     db.session.execute(text('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0'))
+                note_columns = [row[1] for row in db.session.execute(text('PRAGMA table_info(delivery_notes)')).fetchall()]
+                if 'company_project' not in note_columns:
+                    db.session.execute(text('ALTER TABLE delivery_notes ADD COLUMN company_project VARCHAR(200)'))
                 report_columns = [
                     row[1] for row in db.session.execute(text('PRAGMA table_info(reports)')).fetchall()
                 ]
@@ -181,6 +185,7 @@ def init_db():
             elif db.engine.dialect.name == 'postgresql':
                 # Postgres supports IF NOT EXISTS
                 db.session.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0'))
+                db.session.execute(text('ALTER TABLE delivery_notes ADD COLUMN IF NOT EXISTS company_project VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS customer_name VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS company_project VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(200)'))
@@ -547,12 +552,13 @@ def delivery_notes_page():
         employee_id = request.form.get('employee_id', type=int)
         employee = db.session.get(User, employee_id) if employee_id else None
         customer_name = (request.form.get('customer_name') or '').strip()
+        company_project = (request.form.get('company_project') or '').strip()
         address = (request.form.get('address') or '').strip()
         source = request.files.get('document')
         if not employee or employee.role != 'user' or not employee.is_active:
             flash('יש לבחור עובד פעיל', 'error')
             return redirect(url_for('delivery_notes_page'))
-        if not customer_name or not address or len(customer_name) > 200 or len(address) > 500:
+        if not customer_name or not address or len(customer_name) > 200 or len(address) > 500 or len(company_project) > 200:
             flash('יש למלא לקוח וכתובת תקינים', 'error')
             return redirect(url_for('delivery_notes_page'))
         if not source or not source.filename:
@@ -567,7 +573,7 @@ def delivery_notes_page():
         ext = source.filename.rsplit('.', 1)[-1].lower()
         filename = secure_filename(source.filename) or f'delivery-note.{ext}'
         note = DeliveryNote(employee_id=employee.id, created_by_id=current_user.id,
-                            customer_name=customer_name, address=address,
+                            customer_name=customer_name, company_project=company_project or None, address=address,
                             original_filename=filename, original_path='')
         path = None
         try:
@@ -593,7 +599,152 @@ def delivery_notes_page():
     notes = query.order_by(DeliveryNote.created_at.desc(), DeliveryNote.id.desc()).limit(100).all()
     employees = (User.query.filter_by(role='user', is_active=True).order_by(User.full_name).all()
                  if current_user.is_admin() else [])
-    return render_template('delivery_notes.html', notes=notes, employees=employees)
+    projects = (CompanyProject.query.filter_by(is_active=True).order_by(CompanyProject.name).all()
+                if current_user.is_admin() else [])
+    return render_template('delivery_notes.html', notes=notes, employees=employees, projects=projects)
+
+
+@app.route('/delivery-notes/library')
+@login_required
+def delivery_note_library():
+    """One manager view of assigned, photographed, uploaded and signed delivery notes."""
+    if not current_user.is_admin():
+        return jsonify({'error': 'אין הרשאה'}), 403
+
+    notes = (DeliveryNote.query.options(joinedload(DeliveryNote.employee))
+             .order_by(DeliveryNote.created_at.desc()).all())
+    documents = (ReportDocument.query.options(joinedload(ReportDocument.report).joinedload(Report.author))
+                 .join(Report)
+                 .filter(Report.report_type == 'delivery')
+                 .order_by(ReportDocument.uploaded_at.desc()).all())
+    reports_by_id = {report.id: report for report in Report.query.filter(
+        Report.id.in_({note.report_id for note in notes if note.report_id})
+    ).all()}
+    copied_signatures = {(note.report_id, f'delivery-note-{note.id}-signed.pdf')
+                         for note in notes if note.report_id and note.signed_path}
+    entries = []
+    for note in notes:
+        report = reports_by_id.get(note.report_id)
+        entries.append({
+            'kind': 'assigned', 'id': note.id, 'company': (report.company_project if report and report.company_project
+                                                              else note.company_project) or '',
+            'customer': note.customer_name, 'address': note.address,
+            'employee': note.employee.full_name if note.employee else '',
+            'employee_id': note.employee_id, 'date': note.signed_at or note.created_at,
+            'status': 'signed' if note.signed_at else 'waiting',
+            'filename': note.original_filename, 'report_id': note.report_id,
+            'original_url': url_for('delivery_note_file', note_id=note.id, kind='original')
+                            if os.path.isfile(os.path.join(Config.UPLOAD_FOLDER, note.original_path)) else None,
+            'signed_url': url_for('delivery_note_file', note_id=note.id, kind='signed')
+                          if note.signed_path and os.path.isfile(os.path.join(Config.UPLOAD_FOLDER, note.signed_path)) else None,
+            'signed_missing': bool(note.signed_at and note.signed_path and not os.path.isfile(
+                os.path.join(Config.UPLOAD_FOLDER, note.signed_path))),
+            'detail_url': url_for('delivery_note_detail', note_id=note.id),
+            'is_image': note.original_path.lower().endswith(('.png', '.jpg', '.jpeg')),
+        })
+    for document in documents:
+        if (document.report_id, document.original_filename) in copied_signatures:
+            continue
+        report = document.report
+        entries.append({
+            'kind': 'report', 'id': document.id, 'company': report.company_project or '',
+            'customer': report.customer_name or '', 'address': report.address,
+            'employee': report.author.full_name if report.author else '',
+            'employee_id': report.user_id, 'date': document.uploaded_at or report.timestamp,
+            'status': 'report', 'filename': document.original_filename or 'תעודת משלוח',
+            'report_id': report.id,
+            'original_url': url_for('uploaded_file', filename=document.document_path)
+                            if os.path.isfile(os.path.join(Config.UPLOAD_FOLDER, document.document_path)) else None,
+            'signed_url': None, 'signed_missing': False,
+            'detail_url': url_for('view_report', report_id=report.id),
+            'is_image': document.document_path.lower().endswith(('.png', '.jpg', '.jpeg')),
+        })
+
+    options = {
+        'companies': sorted({entry['company'] for entry in entries if entry['company']}, key=str.casefold),
+        'customers': sorted({entry['customer'] for entry in entries if entry['customer']}, key=str.casefold),
+        'employees': sorted({(entry['employee_id'], entry['employee']) for entry in entries
+                             if entry['employee']}, key=lambda value: value[1].casefold()),
+        'projects': sorted({project.name for project in CompanyProject.query.filter_by(is_active=True).all()}
+                           | {entry['company'] for entry in entries if entry['company']}, key=str.casefold),
+    }
+    filters = {key: (request.args.get(key) or '').strip()[:200]
+               for key in ('q', 'company', 'customer', 'employee', 'status', 'from', 'to')}
+    search = filters['q'].casefold()
+    filtered = []
+    for entry in entries:
+        if filters['company'] and entry['company'] != filters['company']:
+            continue
+        if filters['customer'] and entry['customer'] != filters['customer']:
+            continue
+        if filters['employee'] and str(entry['employee_id']) != filters['employee']:
+            continue
+        if filters['status'] and entry['status'] != filters['status']:
+            continue
+        if filters['from'] and entry['date'] and entry['date'].date().isoformat() < filters['from']:
+            continue
+        if filters['to'] and entry['date'] and entry['date'].date().isoformat() > filters['to']:
+            continue
+        if search and search not in ' '.join(str(entry[key]) for key in
+                                            ('company', 'customer', 'address', 'employee', 'filename', 'report_id', 'id')).casefold():
+            continue
+        filtered.append(entry)
+
+    filtered.sort(key=lambda entry: (
+        not bool(entry['company']), entry['company'].casefold(), entry['customer'].casefold(),
+        -(entry['date'].timestamp() if entry['date'] else 0), entry['kind'], entry['id']))
+    page = max(request.args.get('page', 1, type=int) or 1, 1)
+    page_size = 100
+    page_count = max(math.ceil(len(filtered) / page_size), 1)
+    page = min(page, page_count)
+    page_entries = filtered[(page - 1) * page_size:page * page_size]
+    groups = []
+    for entry in page_entries:
+        if not groups or groups[-1]['company'] != entry['company']:
+            groups.append({'company': entry['company'], 'customers': [], 'count': 0})
+        groups[-1]['count'] += 1
+        customers = groups[-1]['customers']
+        if not customers or customers[-1]['name'] != entry['customer']:
+            customers.append({'name': entry['customer'], 'entries': []})
+        customers[-1]['entries'].append(entry)
+    return render_template('delivery_note_library.html', groups=groups, options=options,
+                           filters=filters, page=page, page_count=page_count,
+                           total=len(filtered), total_all=len(entries),
+                           signed_count=sum(entry['status'] == 'signed' for entry in entries))
+
+
+@app.route('/delivery-notes/library/classify', methods=['POST'])
+@login_required
+def classify_delivery_note():
+    if not current_user.is_admin():
+        return jsonify({'error': 'אין הרשאה'}), 403
+    company = (request.form.get('company_project') or '').strip()
+    kind = request.form.get('kind')
+    record_id = request.form.get('record_id', type=int)
+    if len(company) > 200 or kind not in ('assigned', 'report') or not record_id:
+        flash('פרטי הסיווג אינם תקינים', 'error')
+    elif kind == 'assigned':
+        note = db.session.get(DeliveryNote, record_id)
+        if not note:
+            return jsonify({'error': 'תעודה לא נמצאה'}), 404
+        note.company_project = company or None
+        if note.report_id:
+            report = db.session.get(Report, note.report_id)
+            if report:
+                report.company_project = company or None
+        db.session.commit()
+        flash('החברה עודכנה', 'success')
+    else:
+        document = db.session.get(ReportDocument, record_id)
+        if not document or document.report.report_type != 'delivery':
+            return jsonify({'error': 'תעודה לא נמצאה'}), 404
+        document.report.company_project = company or None
+        db.session.commit()
+        flash('החברה עודכנה', 'success')
+    return redirect(url_for('delivery_note_library', **{
+        key: request.form.get(key, '') for key in ('q', 'company', 'customer', 'employee', 'status', 'from', 'to')
+        if request.form.get(key)
+    }))
 
 
 @app.route('/delivery-notes/<int:note_id>')

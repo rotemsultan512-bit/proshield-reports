@@ -60,6 +60,7 @@ class DeliveryNote(db.Model):
     employee_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     customer_name = db.Column(db.String(200), nullable=False)
+    company_project = db.Column(db.String(200))
     address = db.Column(db.String(500), nullable=False)
     original_filename = db.Column(db.String(255), nullable=False)
     original_path = db.Column(db.String(500), nullable=False)
@@ -78,6 +79,7 @@ class DeliveryNote(db.Model):
             'employee_id': self.employee_id,
             'employee_name': self.employee.full_name if self.employee else '',
             'customer_name': self.customer_name,
+            'company_project': self.company_project,
             'address': self.address,
             'original_filename': self.original_filename,
             'recipient_name': self.recipient_name,
