@@ -139,6 +139,35 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json['success'])
 
+    def test_repeated_bad_passwords_pause_only_that_visitor_and_account(self):
+        client = app.test_client()
+        page = client.get('/login').get_data(as_text=True)
+        token = re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
+        headers = {'X-CSRFToken': token}
+        first_ip = {'REMOTE_ADDR': '203.0.113.10'}
+        for _ in range(12):
+            response = client.post('/login', json={'username': 'owner', 'password': 'wrong'},
+                                   headers=headers, environ_overrides=first_ip)
+            self.assertEqual(response.status_code, 401)
+        blocked = client.post('/login', json={'username': 'owner', 'password': 'owner-password'},
+                              headers=headers, environ_overrides=first_ip)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertIn('Retry-After', blocked.headers)
+        allowed = client.post('/login', json={'username': 'owner', 'password': 'owner-password'},
+                              headers=headers, environ_overrides={'REMOTE_ADDR': '203.0.113.11'})
+        self.assertEqual(allowed.status_code, 200)
+        self.assertTrue(allowed.json['success'])
+
+    def test_login_handles_malformed_json_without_server_error(self):
+        client = app.test_client()
+        page = client.get('/login').get_data(as_text=True)
+        token = re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
+        headers = {'X-CSRFToken': token}
+        for payload in ([], {'username': ['owner'], 'password': 'bad'},
+                        {'username': 'owner', 'password': None}):
+            response = client.post('/login', json=payload, headers=headers)
+            self.assertEqual(response.status_code, 400)
+
     def test_custom_inventory_item_is_visible(self):
         with app.app_context():
             db.session.add(InventoryItem(product_name='Custom field product'))
