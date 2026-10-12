@@ -6,9 +6,13 @@
 <div class="dashboard-page">
     <!-- Page Header -->
     <div class="page-header">
-        <h1>{% if current_user.is_admin() %}כל הדוחות{% else %}הדוחות שלי{% endif %}</h1>
+        <div>
+            <span class="page-eyebrow">יומן עבודה</span>
+            <h1>{% if current_user.is_admin() %}כל הדוחות{% else %}הדוחות שלי{% endif %}</h1>
+            <p class="page-intro">מוצאים דיווח, משלימים טיפול וחוזרים לשטח.</p>
+        </div>
         <a href="{{ url_for('new_report') }}" class="btn btn-primary btn-new-report">
-            + דוח חדש
+            + דיווח חדש
         </a>
     </div>
 
@@ -70,59 +74,75 @@
         {% endif %}
     </div>
 
+    <div class="quick-filters" role="group" aria-label="סינון מהיר של דוחות">
+        <span class="quick-filters-label">תצוגה מהירה</span>
+        <button type="button" class="quick-filter active" data-quick-filter="all" aria-pressed="true">הכל</button>
+        <button type="button" class="quick-filter" data-quick-filter="month" aria-pressed="false">החודש</button>
+        <button type="button" class="quick-filter" data-quick-filter="return" aria-pressed="false">נדרש חזרה</button>
+        <button type="button" class="quick-filter" data-quick-filter="delivery" aria-pressed="false">אספקות</button>
+        <button type="button" class="quick-filter" data-quick-filter="installation" aria-pressed="false">התקנות</button>
+        <button type="button" class="quick-filter" data-quick-filter="archived" aria-pressed="false">ארכיון</button>
+    </div>
+
     <!-- Filters -->
     <div class="filters-card">
-        <div class="filters-row">
-            <div class="filter-group">
-                <label>סוג דוח</label>
-                <select id="filterType">
-                    <option value="">הכל</option>
-                    <option value="delivery">אספקה</option>
-                    <option value="installation">התקנה</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>סטטוס</label>
-                <select id="filterStatus">
-                    <option value="">הכל</option>
-                    <option value="completed">הושלם</option>
-                    <option value="return_required">נדרש חזרה</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>מתאריך</label>
-                <input type="date" id="filterDateFrom">
-            </div>
-            <div class="filter-group">
-                <label>עד תאריך</label>
-                <input type="date" id="filterDateTo">
-            </div>
+        <div class="filter-topline">
             <div class="filter-group filter-search">
-                <label>חיפוש</label>
-                <input type="text" id="filterSearch" placeholder="חפש לפי כתובת, שם לקוח או חברת בניה/פרויקט...">
+                <label for="filterSearch" class="sr-only">חיפוש דוחות</label>
+                <input type="search" id="filterSearch" placeholder="חיפוש לפי כתובת, לקוח או פרויקט...">
             </div>
-            {% if current_user.is_admin() %}
-            <div class="filter-group">
-                <label>שם עובד</label>
-                <input type="text" id="filterUserSearch" placeholder="חיפוש לפי שם עובד...">
+            <button class="btn btn-secondary btn-sm" id="exportMineBtn">הורד דוח חודשי שלי</button>
+        </div>
+        <details class="advanced-filters" id="advancedFilters">
+            <summary>סינון מתקדם</summary>
+            <div class="filters-row">
+                <div class="filter-group">
+                    <label for="filterType">סוג דוח</label>
+                    <select id="filterType">
+                        <option value="">הכל</option>
+                        <option value="delivery">אספקה</option>
+                        <option value="installation">התקנה</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterStatus">סטטוס</label>
+                    <select id="filterStatus">
+                        <option value="">הכל</option>
+                        <option value="completed">הושלם</option>
+                        <option value="return_required">נדרש חזרה</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filterDateFrom">מתאריך</label>
+                    <input type="date" id="filterDateFrom">
+                </div>
+                <div class="filter-group">
+                    <label for="filterDateTo">עד תאריך</label>
+                    <input type="date" id="filterDateTo">
+                </div>
+                {% if current_user.is_admin() %}
+                <div class="filter-group">
+                    <label for="filterUserSearch">שם עובד</label>
+                    <input type="text" id="filterUserSearch" placeholder="חיפוש לפי שם עובד...">
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
-        </div>
-        <div class="filters-actions">
-            <button class="btn btn-primary btn-sm" id="applyFilters">
-                חפש
-            </button>
-            <button class="btn btn-ghost btn-sm" id="clearFilters">
-                נקה פילטרים
-            </button>
-            <button class="btn btn-secondary btn-sm" id="exportMineBtn">
-                הורד דוח חודשי שלי
-            </button>
-        </div>
+            <div class="filters-actions">
+                <button class="btn btn-primary btn-sm" id="applyFilters">החל סינון</button>
+                <button class="btn btn-ghost btn-sm" id="clearFilters">נקה פילטרים</button>
+            </div>
+        </details>
     </div>
 
     <!-- Reports List -->
     <div class="reports-container">
+        <div class="reports-heading">
+            <div>
+                <span class="section-kicker">דיווחים</span>
+                <h2 id="resultSummary" aria-live="polite">טוען דוחות...</h2>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="refreshReports" aria-label="רענן דוחות">↻ רענון</button>
+        </div>
         <div class="reports-list" id="reportsList">
             <!-- Reports will be loaded here -->
         </div>
@@ -141,8 +161,14 @@
                 </svg>
             </div>
             <h3>אין דוחות</h3>
-            <p>לא נמצאו דוחות התואמים לחיפוש</p>
-            <a href="{{ url_for('new_report') }}" class="btn btn-primary">+ צור דוח חדש</a>
+            <p id="emptyMessage">לא נמצאו דוחות התואמים לחיפוש</p>
+            <a href="{{ url_for('new_report') }}" class="btn btn-primary" id="emptyCreateReport">+ צור דוח חדש</a>
+        </div>
+
+        <div class="reports-error" id="reportsError" style="display:none;" role="alert">
+            <strong>לא הצלחנו לטעון את הדוחות</strong>
+            <span>בדוק את החיבור ונסה שוב.</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="retryReports">נסה שוב</button>
         </div>
 
         <!-- Pagination -->
@@ -153,15 +179,14 @@
         </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
+    <!-- Archive Confirmation Modal -->
     <div class="modal" id="deleteModal">
         <div class="modal-content">
-            <h3>🗑️ מחיקת דוח</h3>
-            <p>האם אתה בטוח שברצונך למחוק את הדוח?</p>
-            <p class="warning">פעולה זו אינה ניתנת לביטול!</p>
+            <h3>העברת דוח לארכיון</h3>
+            <p>הדוח והקבצים יישמרו. תנועת המלאי תבוטל, ואפשר יהיה לשחזר את הדוח.</p>
             <div class="modal-actions">
                 <button class="btn btn-ghost" id="cancelDelete">ביטול</button>
-                <button class="btn btn-danger" id="confirmDelete">מחק</button>
+                <button class="btn btn-danger" id="confirmDelete">העבר לארכיון</button>
             </div>
         </div>
     </div>
@@ -179,6 +204,7 @@
     // Global state
     let currentPage = 1;
     let totalPages = 1;
+    let showingArchived = false;
     const perPage = 20;
 
     // DOM Elements
@@ -187,6 +213,9 @@
     const reportsEmpty = document.getElementById('reportsEmpty');
     const pagination = document.getElementById('pagination');
     const pageInfo = document.getElementById('pageInfo');
+    const resultSummary = document.getElementById('resultSummary');
+    const reportsError = document.getElementById('reportsError');
+    const quickFilterButtons = document.querySelectorAll('[data-quick-filter]');
 
     // Load reports and stats on page load
     document.addEventListener('DOMContentLoaded', () => {
@@ -198,6 +227,7 @@
     // Filter handlers
     document.getElementById('applyFilters').addEventListener('click', () => {
         currentPage = 1;
+        updateQuickFilterState();
         loadReports();
     });
 
@@ -211,7 +241,57 @@
         document.getElementById('filterUserSearch').value = '';
         {% endif %}
         currentPage = 1;
+        showingArchived = false;
+        updateQuickFilterState();
         loadReports();
+    });
+
+    function updateQuickFilterState(selected = null) {
+        quickFilterButtons.forEach(button => {
+            const active = button.dataset.quickFilter === selected;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
+        });
+    }
+
+    quickFilterButtons.forEach(button => button.addEventListener('click', () => {
+        const filter = button.dataset.quickFilter;
+        showingArchived = filter === 'archived';
+        document.getElementById('filterType').value = ['delivery', 'installation'].includes(filter) ? filter : '';
+        document.getElementById('filterStatus').value = filter === 'return' ? 'return_required' : '';
+        document.getElementById('filterDateFrom').value = filter === 'month'
+            ? `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`
+            : '';
+        document.getElementById('filterDateTo').value = '';
+        document.getElementById('filterSearch').value = '';
+        {% if current_user.is_admin() %}
+        document.getElementById('filterUserSearch').value = '';
+        {% endif %}
+        currentPage = 1;
+        updateQuickFilterState(filter);
+        loadReports();
+    }));
+
+    document.getElementById('refreshReports').addEventListener('click', () => {
+        loadReports();
+        loadStats();
+        checkOfflineReports();
+    });
+    document.getElementById('retryReports').addEventListener('click', loadReports);
+
+    let searchTimer;
+    ['filterSearch', {% if current_user.is_admin() %}'filterUserSearch'{% endif %}].filter(Boolean).forEach(id => {
+        document.getElementById(id).addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => { currentPage = 1; updateQuickFilterState(); loadReports(); }, 350);
+        });
+    });
+    ['filterType', 'filterStatus', 'filterDateFrom', 'filterDateTo'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+            currentPage = 1;
+            updateQuickFilterState();
+            loadReports();
+        });
     });
 
     // Export monthly report (current user)
@@ -280,6 +360,7 @@
 
     async function loadReports() {
         showLoading(true);
+        reportsError.style.display = 'none';
 
         const params = new URLSearchParams({
             page: currentPage,
@@ -296,6 +377,7 @@
         {% endif %}
 
         if (type) params.append('type', type);
+        if (showingArchived) params.append('archived', '1');
         if (status) params.append('status', status);
         if (dateFrom) params.append('date_from', dateFrom);
         if (dateTo) params.append('date_to', dateTo);
@@ -306,15 +388,21 @@
 
         try {
             const response = await fetch(`/api/reports?${params}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
 
             totalPages = data.pages;
             renderReports(data.reports);
             updatePagination(data.total, data.pages, data.current_page);
+            resultSummary.textContent = showingArchived
+                ? (data.total === 1 ? 'דוח אחד בארכיון' : `${data.total} דוחות בארכיון`)
+                : (data.total === 1 ? 'נמצא דוח אחד' : `${data.total} דוחות נמצאו`);
 
         } catch (error) {
             console.error('Error loading reports:', error);
-            showToast('שגיאה בטעינת דוחות', 'error');
+            resultSummary.textContent = 'הדוחות אינם זמינים כרגע';
+            reportsError.style.display = 'flex';
+            pagination.style.display = 'none';
         } finally {
             showLoading(false);
         }
@@ -323,6 +411,12 @@
     function renderReports(reports) {
         if (reports.length === 0) {
             reportsList.innerHTML = '';
+            document.getElementById('emptyMessage').textContent =
+                ['filterType', 'filterStatus', 'filterDateFrom', 'filterDateTo', 'filterSearch', {% if current_user.is_admin() %}'filterUserSearch'{% endif %}]
+                    .filter(Boolean).some(id => document.getElementById(id).value)
+                    ? 'לא נמצאו דוחות לפי הסינון שבחרת.'
+                    : showingArchived ? 'הארכיון ריק.' : 'כאן יופיעו הדיווחים לאחר יצירת הדוח הראשון.';
+            document.getElementById('emptyCreateReport').style.display = showingArchived ? 'none' : '';
             reportsEmpty.style.display = 'block';
             pagination.style.display = 'none';
             return;
@@ -331,14 +425,14 @@
         reportsEmpty.style.display = 'none';
 
         reportsList.innerHTML = reports.map(report => `
-            <div class="report-card-wrapper">
+            <div class="report-card-wrapper ${report.is_archived ? 'is-archived' : ''}">
                 <a href="/report/${report.id}" class="report-card">
                     <div class="report-card-header">
                         <span class="report-type ${report.report_type}">
                             ${report.report_type === 'delivery' ? 'אספקה' : 'התקנה'}
                         </span>
-                        <span class="report-status ${report.status}">
-                            ${report.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}
+                        <span class="report-status ${report.is_archived ? 'archived' : report.status}">
+                            ${report.is_archived ? 'בארכיון' : report.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}
                         </span>
                     </div>
                     <div class="report-card-body">
@@ -364,8 +458,10 @@
                     </div>
                 </a>
                 <div class="report-card-actions">
-                    <a href="/report/${report.id}/edit" class="btn-card-action btn-edit-action" title="ערוך">✏️</a>
-                    <button class="btn-card-action btn-delete-action" data-report-id="${report.id}" title="מחק">🗑️</button>
+                    ${report.is_archived
+                        ? `<button class="btn-card-action btn-restore-action" data-report-id="${report.id}" aria-label="שחזר דוח ${report.id}" title="שחזר">↩</button>`
+                        : `<a href="/report/${report.id}/edit" class="btn-card-action btn-edit-action" aria-label="ערוך דוח ${report.id}" title="ערוך">✏️</a>
+                           <button class="btn-card-action btn-delete-action" data-report-id="${report.id}" aria-label="העבר דוח ${report.id} לארכיון" title="העבר לארכיון">▤</button>`}
                 </div>
             </div>
         `).join('');
@@ -377,6 +473,22 @@
                 e.stopPropagation();
                 const reportId = btn.dataset.reportId;
                 showDeleteModal(reportId);
+            });
+        });
+        document.querySelectorAll('.btn-restore-action').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                try {
+                    const response = await fetch(`/api/reports/${btn.dataset.reportId}/restore`, { method: 'POST' });
+                    const data = await response.json();
+                    if (!response.ok || !data.success) throw new Error(data.error || 'השחזור נכשל');
+                    showToast('הדוח שוחזר', 'success');
+                    loadReports();
+                    loadStats();
+                } catch (error) {
+                    showToast(error.message || 'לא ניתן לשחזר את הדוח', 'error');
+                    btn.disabled = false;
+                }
             });
         });
     }
@@ -535,7 +647,7 @@
         if (!deleteReportId) return;
 
         confirmDeleteBtn.disabled = true;
-        confirmDeleteBtn.textContent = 'מוחק...';
+        confirmDeleteBtn.textContent = 'מעביר...';
 
         try {
             const response = await fetch(`/api/reports/${deleteReportId}`, {
@@ -545,7 +657,7 @@
             const data = await response.json();
 
             if (data.success) {
-                showToast('הדוח נמחק בהצלחה', 'success');
+                showToast('הדוח הועבר לארכיון', 'success');
                 deleteModal.classList.remove('active');
                 loadReports();
                 loadStats();
@@ -556,7 +668,7 @@
             showToast('שגיאת תקשורת', 'error');
         } finally {
             confirmDeleteBtn.disabled = false;
-            confirmDeleteBtn.textContent = 'מחק';
+            confirmDeleteBtn.textContent = 'העבר לארכיון';
             deleteReportId = null;
         }
     });

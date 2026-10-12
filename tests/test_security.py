@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,14 @@ from models import db, InventoryItem, InventoryTransaction, Report, ReportImage,
 
 
 class SecurityTests(unittest.TestCase):
+    @staticmethod
+    def image_bytes():
+        image = Image.new('RGB', (8, 8), '#d88221')
+        buffer = BytesIO()
+        image.save(buffer, format='PNG')
+        buffer.seek(0)
+        return buffer
+
     @classmethod
     def setUpClass(cls):
         with app.app_context():
@@ -136,6 +145,138 @@ class SecurityTests(unittest.TestCase):
             item = InventoryItem.query.filter_by(product_name='Offline test product').one()
             self.assertEqual(item.quantity_unit, -3)
             self.assertEqual(InventoryTransaction.query.filter_by(report_id=first.json['report_id']).count(), 1)
+
+    def test_archive_and_restore_keep_report_files_and_stock_history(self):
+        client = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(client)}
+        form = {
+            'client_id': 'archive-test-001',
+            'report_type': 'delivery',
+            'customer_name': 'Archive Customer',
+            'report_datetime': '2026-10-12T13:00',
+            'address': 'Archive address',
+            'status': 'completed',
+            'products': json.dumps([{'name': 'Archive test product', 'quantity': 4, 'unit': 'unit'}]),
+        }
+        created = client.post('/api/reports', data=form, headers=headers)
+        self.assertEqual(created.status_code, 200)
+        report_id = created.json['report_id']
+        with app.app_context():
+            report = db.session.get(Report, report_id)
+            relative = f'{report_id}/images/retained.jpg'
+            db.session.add(ReportImage(report_id=report_id, image_path=relative))
+            db.session.commit()
+            path = Path(os.environ['UPLOAD_FOLDER']) / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'retained file')
+
+        other = self.client_as(self.other_id)
+        other_headers = {'X-CSRFToken': self.csrf_for(other)}
+        self.assertEqual(other.delete(f'/api/reports/{report_id}', headers=other_headers).status_code, 403)
+        archived = client.delete(f'/api/reports/{report_id}', headers=headers)
+        self.assertEqual(archived.status_code, 200)
+        self.assertTrue(archived.json['success'])
+        self.assertEqual(client.delete(f'/api/reports/{report_id}', headers=headers).json['already_archived'], True)
+        self.assertEqual(client.get('/api/reports?search=Archive%20address').json['total'], 0)
+        self.assertEqual(client.get('/api/reports?archived=1&search=Archive%20address').json['total'], 1)
+        with client.get(f'/uploads/reports/{relative}') as file_response:
+            self.assertEqual(file_response.status_code, 200)
+        with app.app_context():
+            self.assertEqual(db.session.get(Report, report_id).is_archived, True)
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Archive test product').one().quantity_unit, 0)
+            self.assertEqual(InventoryTransaction.query.filter_by(report_id=report_id).count(), 2)
+
+        restored = client.post(f'/api/reports/{report_id}/restore', headers=headers)
+        self.assertEqual(restored.status_code, 200)
+        self.assertTrue(restored.json['success'])
+        self.assertEqual(client.post(f'/api/reports/{report_id}/restore', headers=headers).json['already_restored'], True)
+        with app.app_context():
+            self.assertEqual(db.session.get(Report, report_id).is_archived, False)
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Archive test product').one().quantity_unit, -4)
+            self.assertEqual(InventoryTransaction.query.filter_by(report_id=report_id).count(), 3)
+
+    def test_report_edit_adds_valid_evidence_and_updates_stock(self):
+        client = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(client)}
+        form = {
+            'client_id': 'edit-evidence-test',
+            'report_type': 'delivery',
+            'customer_name': 'Evidence Customer',
+            'report_datetime': '2026-10-12T14:00',
+            'address': 'Evidence address',
+            'status': 'completed',
+            'products': json.dumps([{'name': 'Evidence test product', 'quantity': 1, 'unit': 'unit'}]),
+        }
+        created = client.post('/api/reports', data=form, headers=headers)
+        self.assertEqual(created.status_code, 200)
+        report_id = created.json['report_id']
+
+        edited = client.put(f'/api/reports/{report_id}', data={
+            **form,
+            'products': json.dumps([{'name': 'Evidence test product', 'quantity': 2, 'unit': 'unit'}]),
+            'images': (self.image_bytes(), 'field.png'),
+            'delivery_note': (BytesIO(b'%PDF-1.4\n%%EOF\n'), 'signed.pdf'),
+        }, headers=headers)
+        self.assertEqual(edited.status_code, 200)
+        data = client.get(f'/api/reports/{report_id}').json
+        self.assertEqual(len(data['images']), 1)
+        self.assertEqual(len(data['documents']), 1)
+        with app.app_context():
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Evidence test product').one().quantity_unit, -2)
+        for path in (data['images'][0]['image_path'], data['documents'][0]['document_path']):
+            with client.get('/uploads/reports/' + path.replace('\\', '/')) as file_response:
+                self.assertEqual(file_response.status_code, 200)
+
+    def test_installation_report_keeps_team_and_restricts_evidence(self):
+        owner = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(owner)}
+        created = owner.post('/api/reports', data={
+            'client_id': 'installation-flow-test',
+            'report_type': 'installation',
+            'customer_name': 'Installation Customer',
+            'report_datetime': '2026-10-12T15:00',
+            'address': 'Installation address',
+            'status': 'return_required',
+            'installation_types': json.dumps(['הגנת מדרגות']),
+            'installation_team': 'with_worker',
+            'additional_worker_name': 'Test colleague',
+            'products': json.dumps([{'name': 'Installation test product', 'quantity': 3, 'unit': 'meter'}]),
+            'images': (self.image_bytes(), 'worksite.png'),
+        }, headers=headers)
+        self.assertEqual(created.status_code, 200)
+        report_id = created.json['report_id']
+        data = owner.get(f'/api/reports/{report_id}').json
+        self.assertEqual(data['installation_team'], 'with_worker')
+        self.assertEqual(data['additional_worker_name'], 'Test colleague')
+        self.assertEqual(json.loads(data['installation_types']), ['הגנת מדרגות'])
+        self.assertEqual(len(data['images']), 1)
+
+        other = self.client_as(self.other_id)
+        self.assertEqual(other.get(f'/api/reports/{report_id}').status_code, 403)
+        image_url = '/uploads/reports/' + data['images'][0]['image_path'].replace('\\', '/')
+        self.assertEqual(other.get(image_url).status_code, 404)
+        with owner.get(image_url) as image_response:
+            self.assertEqual(image_response.status_code, 200)
+        with app.app_context():
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Installation test product').one().quantity_meter, -3)
+
+    def test_report_rejects_invalid_type_and_status(self):
+        client = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(client)}
+        form = {
+            'report_type': 'delivery',
+            'customer_name': 'Validation Customer',
+            'report_datetime': '2026-10-12T15:00',
+            'address': 'Test address',
+            'status': 'completed',
+            'products': json.dumps([{'name': 'Validation test product', 'quantity': 1, 'unit': 'unit'}]),
+        }
+        for field, invalid_value in (('report_type', 'unknown'), ('status', 'unknown')):
+            invalid_form = dict(form, **{field: invalid_value})
+            self.assertEqual(client.post('/api/reports', data=invalid_form, headers=headers).status_code, 400)
+        with app.app_context():
+            self.assertEqual(Report.query.filter_by(customer_name='Validation Customer').count(), 0)
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Validation test product').count(), 0)
 
     def test_legacy_offline_sync_preserves_stock_and_retry_safety(self):
         client = self.client_as(self.owner_id)

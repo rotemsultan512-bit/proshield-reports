@@ -97,6 +97,12 @@ def init_db():
 
                 if 'client_id' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN client_id VARCHAR(64)'))
+                if 'is_archived' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0'))
+                if 'archived_at' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN archived_at DATETIME'))
+                if 'archived_by_user_id' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN archived_by_user_id INTEGER'))
                 db.session.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_reports_client_id ON reports (client_id)'))
 
                 # Company/Project list table
@@ -160,6 +166,9 @@ def init_db():
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_types TEXT'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS protections_count INTEGER'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS client_id VARCHAR(64)'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS archived_by_user_id INTEGER'))
                 db.session.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_reports_client_id ON reports (client_id)'))
                 db.session.execute(text('ALTER TABLE report_products ADD COLUMN IF NOT EXISTS quantity_unit VARCHAR(20)'))
 
@@ -440,6 +449,10 @@ def edit_report(report_id):
         flash('אין לך הרשאה לערוך דוח זה', 'error')
         return redirect(url_for('dashboard'))
 
+    if report.is_archived:
+        flash('יש לשחזר את הדוח לפני עריכתו', 'warning')
+        return redirect(url_for('view_report', report_id=report_id))
+
     return render_template('new_report.html', products=PRODUCTS, edit_mode=True, report_id=report.id)
 
 @app.route('/settings')
@@ -480,6 +493,7 @@ def get_reports():
     search = request.args.get('search')
     user_search = request.args.get('user_search')
     user_id = request.args.get('user_id', type=int)
+    show_archived = request.args.get('archived') == '1'
 
     # Base query
     if current_user.is_admin():
@@ -488,6 +502,7 @@ def get_reports():
             query = query.filter(Report.user_id == user_id)
     else:
         query = Report.query.filter_by(user_id=current_user.id)
+    query = query.filter(Report.is_archived.is_(show_archived))
 
     # Apply filters
     if report_type:
@@ -530,9 +545,9 @@ def get_reports_stats():
 
     # Base query based on user role
     if current_user.is_admin():
-        base_query = Report.query
+        base_query = Report.query.filter(Report.is_archived.is_(False))
     else:
-        base_query = Report.query.filter_by(user_id=current_user.id)
+        base_query = Report.query.filter_by(user_id=current_user.id, is_archived=False)
 
     # Total reports
     total = base_query.count()
@@ -596,6 +611,10 @@ def create_report():
         # Validate required fields
         if not all([report_type, address, status]):
             return jsonify({'success': False, 'error': 'יש למלא את כל השדות הנדרשים'}), 400
+        if report_type not in ('delivery', 'installation') or status not in ('completed', 'return_required'):
+            return jsonify({'success': False, 'error': 'סוג דוח או סטטוס לא תקינים'}), 400
+        if len(address) > 500 or len(customer_name) > 200 or len(company_project) > 200 or len(recipient_name) > 200:
+            return jsonify({'success': False, 'error': 'אחד השדות ארוך מדי'}), 400
 
         if not customer_name:
             return jsonify({'success': False, 'error': 'יש להזין שם לקוח'}), 400
@@ -644,6 +663,8 @@ def create_report():
             # Installation team validation
             if not installation_team:
                 return jsonify({'success': False, 'error': 'יש לבחור צוות התקנה'}), 400
+            if installation_team not in ('solo', 'with_worker') or len(additional_worker_name) > 200:
+                return jsonify({'success': False, 'error': 'פרטי צוות ההתקנה לא תקינים'}), 400
 
             if installation_team == 'with_worker' and not additional_worker_name:
                 return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
@@ -772,9 +793,12 @@ def get_report(report_id):
 def update_report(report_id):
     """Update a report and sync inventory"""
     report = Report.query.get_or_404(report_id)
+    saved_paths = []
 
     if not current_user.is_admin() and report.user_id != current_user.id:
         return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+    if report.is_archived:
+        return jsonify({'success': False, 'error': 'יש לשחזר את הדוח לפני עריכתו'}), 409
 
     try:
         report_type = request.form.get('report_type')
@@ -796,6 +820,10 @@ def update_report(report_id):
 
         if not all([report_type, address, status]):
             return jsonify({'success': False, 'error': 'יש למלא את כל השדות הנדרשים'}), 400
+        if report_type not in ('delivery', 'installation') or status not in ('completed', 'return_required'):
+            return jsonify({'success': False, 'error': 'סוג דוח או סטטוס לא תקינים'}), 400
+        if len(address) > 500 or len(customer_name) > 200 or len(company_project) > 200 or len(recipient_name) > 200:
+            return jsonify({'success': False, 'error': 'אחד השדות ארוך מדי'}), 400
 
         if not customer_name:
             return jsonify({'success': False, 'error': 'יש להזין שם לקוח'}), 400
@@ -833,12 +861,22 @@ def update_report(report_id):
             # Installation team validation
             if not installation_team:
                 return jsonify({'success': False, 'error': 'יש לבחור צוות התקנה'}), 400
+            if installation_team not in ('solo', 'with_worker') or len(additional_worker_name) > 200:
+                return jsonify({'success': False, 'error': 'פרטי צוות ההתקנה לא תקינים'}), 400
 
             if installation_team == 'with_worker' and not additional_worker_name:
                 return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
 
         try:
             products_data = parse_products(products_json)
+            delivery_note = request.files.get('delivery_note') if report_type == 'delivery' else None
+            if delivery_note and delivery_note.filename:
+                validate_upload(delivery_note, 'document', Config.MAX_DOCUMENT_SIZE)
+            images = [image for image in request.files.getlist('images') if image and image.filename]
+            if report.images.count() + len(images) > 10:
+                raise ValueError('ניתן לצרף עד 10 תמונות בסך הכול')
+            for image in images:
+                validate_upload(image, 'image', Config.MAX_IMAGE_SIZE)
         except ValueError as exc:
             return jsonify({'success': False, 'error': str(exc)}), 400
 
@@ -900,23 +938,47 @@ def update_report(report_id):
                     notes=f"Update Report #{report.id}"
                 )
 
+        if delivery_note and delivery_note.filename:
+            doc_path = save_file(delivery_note, report.id, 'delivery_note')
+            saved_paths.append(doc_path)
+            db.session.add(ReportDocument(
+                report_id=report.id,
+                document_path=doc_path,
+                original_filename=secure_filename(delivery_note.filename)
+            ))
+
+        for image in images:
+            image_path = save_file(image, report.id, 'image')
+            saved_paths.append(image_path)
+            db.session.add(ReportImage(
+                report_id=report.id,
+                image_path=image_path,
+                image_type='goods' if report_type == 'delivery' else 'project'
+            ))
+
         db.session.commit()
         return jsonify({'success': True, 'report_id': report.id})
 
     except Exception as e:
         db.session.rollback()
+        for path in saved_paths:
+            full_path = os.path.join(Config.UPLOAD_FOLDER, path)
+            if os.path.isfile(full_path):
+                os.remove(full_path)
         return jsonify({'success': False, 'error': f'שגיאה בעדכון הדוח: {str(e)}'}), 500
 
 
 @app.route('/api/reports/<int:report_id>', methods=['DELETE'])
 @login_required
 def delete_report(report_id):
-    """Delete a report"""
-    report = Report.query.get_or_404(report_id)
+    """Archive a report, preserve its evidence, and reverse its stock movement."""
+    report = Report.query.filter_by(id=report_id).with_for_update().first_or_404()
 
     # Check permission
     if not current_user.is_admin() and report.user_id != current_user.id:
         return jsonify({'success': False, 'error': 'אין לך הרשאה למחוק דוח זה'}), 403
+    if report.is_archived:
+        return jsonify({'success': True, 'already_archived': True})
 
     try:
         # Revert inventory changes for this report
@@ -925,25 +987,46 @@ def delete_report(report_id):
                 product_name=product.product_name,
                 quantity=float(product.quantity),
                 unit=product.quantity_unit or 'unit',
-                change_type='report_delete',
+                change_type='report_archive',
                 report_id=report.id,
                 user_id=current_user.id,
-                notes=f"Delete Report #{report.id}"
+                notes=f"Archive Report #{report.id}"
             )
-
-        # Clear inventory transaction references to this report so FK constraint won't block delete
-        InventoryTransaction.query.filter_by(report_id=report.id).delete()
-
-        # Delete associated files
-        report_dir = os.path.join(Config.UPLOAD_FOLDER, str(report_id))
-        if os.path.exists(report_dir):
-            import shutil
-            shutil.rmtree(report_dir)
-
-        db.session.delete(report)
+        report.is_archived = True
+        report.archived_at = datetime.utcnow()
+        report.archived_by_user_id = current_user.id
         db.session.commit()
 
-        return jsonify({'success': True, 'message': 'הדוח נמחק בהצלחה'})
+        return jsonify({'success': True, 'message': 'הדוח הועבר לארכיון'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/reports/<int:report_id>/restore', methods=['POST'])
+@login_required
+def restore_report(report_id):
+    """Restore an archived report and reapply its stock movement."""
+    report = Report.query.filter_by(id=report_id).with_for_update().first_or_404()
+    if not current_user.is_admin() and report.user_id != current_user.id:
+        return jsonify({'success': False, 'error': 'אין הרשאה לשחזר דוח זה'}), 403
+    if not report.is_archived:
+        return jsonify({'success': True, 'already_restored': True})
+
+    try:
+        for product in report.products:
+            apply_inventory_change(
+                product_name=product.product_name,
+                quantity=-float(product.quantity),
+                unit=product.quantity_unit or 'unit',
+                change_type='report_restore',
+                report_id=report.id,
+                user_id=current_user.id,
+                notes=f"Restore Report #{report.id}"
+            )
+        report.is_archived = False
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'הדוח שוחזר'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1263,19 +1346,20 @@ def get_stats():
         return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
 
     # Total reports
-    total_reports = Report.query.count()
-    completed_reports = Report.query.filter_by(status='completed').count()
-    pending_reports = Report.query.filter_by(status='return_required').count()
+    active_reports = Report.query.filter(Report.is_archived.is_(False))
+    total_reports = active_reports.count()
+    completed_reports = active_reports.filter_by(status='completed').count()
+    pending_reports = active_reports.filter_by(status='return_required').count()
 
     # Reports by type
-    delivery_reports = Report.query.filter_by(report_type='delivery').count()
-    installation_reports = Report.query.filter_by(report_type='installation').count()
+    delivery_reports = active_reports.filter_by(report_type='delivery').count()
+    installation_reports = active_reports.filter_by(report_type='installation').count()
 
     # Reports per user
     users = User.query.all()
     reports_per_user = []
     for user in users:
-        count = Report.query.filter_by(user_id=user.id).count()
+        count = active_reports.filter_by(user_id=user.id).count()
         reports_per_user.append({
             'user_id': user.id,
             'full_name': user.full_name,
@@ -1568,7 +1652,7 @@ def export_reports():
     report_type = request.args.get('type')
     user_id = request.args.get('user_id', type=int)
 
-    query = Report.query
+    query = Report.query.filter(Report.is_archived.is_(False))
 
     if user_id:
         query = query.filter(Report.user_id == user_id)
@@ -1599,7 +1683,7 @@ def export_my_reports():
         date_from = f"{now.year}-{now.month:02d}-01"
         date_to = f"{now.year}-{now.month:02d}-{now.day:02d}"
 
-    query = Report.query.filter_by(user_id=current_user.id)
+    query = Report.query.filter_by(user_id=current_user.id, is_archived=False)
 
     if date_from:
         query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
