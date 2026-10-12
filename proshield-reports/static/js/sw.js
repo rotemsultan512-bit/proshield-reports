@@ -3,7 +3,7 @@
  * PWA Offline Support & Caching
  */
 
-const STATIC_CACHE = 'proshield-static-v15';
+const STATIC_CACHE = 'proshield-static-v16';
 
 // Static assets to cache
 const STATIC_ASSETS = [

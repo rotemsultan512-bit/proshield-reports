@@ -3,12 +3,16 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 from PIL import Image
+import pypdfium2 as pdfium
 from datetime import datetime, timedelta
 from io import BytesIO
 import hashlib
 import hmac
 import ipaddress
 import secrets
+import base64
+import binascii
+import shutil
 import tempfile
 import zipfile
 from sqlalchemy import or_, text
@@ -18,7 +22,8 @@ import json
 import math
 
 from config import Config
-from models import db, User, LoginAttempt, PasswordResetToken, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
+from models import db, User, LoginAttempt, PasswordResetToken, DeliveryNote, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
+from delivery_signing import create_signed_pdf, validate_delivery_source
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -491,12 +496,18 @@ def reset_password_page():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html')
+    pending_delivery_notes = (DeliveryNote.query.filter_by(employee_id=current_user.id, signed_at=None)
+                              .order_by(DeliveryNote.created_at.desc()).limit(3).all()
+                              if not current_user.is_admin() else [])
+    return render_template('dashboard.html', pending_delivery_notes=pending_delivery_notes)
 
 @app.route('/report/new')
 @login_required
 def new_report():
-    return render_template('new_report.html', products=PRODUCTS)
+    signed_notes = DeliveryNote.query.filter_by(
+        employee_id=current_user.id, report_id=None
+    ).filter(DeliveryNote.signed_at.isnot(None)).order_by(DeliveryNote.signed_at.desc()).all()
+    return render_template('new_report.html', products=PRODUCTS, signed_notes=signed_notes)
 
 @app.route('/report/<int:report_id>')
 @login_required
@@ -521,6 +532,223 @@ def view_report(report_id):
         missing_document_count=len(documents) - len(available_documents),
     )
 
+
+def _can_view_delivery_note(note):
+    return current_user.is_admin() or note.employee_id == current_user.id
+
+
+@app.route('/delivery-notes', methods=['GET', 'POST'])
+@login_required
+def delivery_notes_page():
+    """Managers assign original documents; employees see their own assignments."""
+    if request.method == 'POST':
+        if not current_user.is_admin():
+            return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+        employee_id = request.form.get('employee_id', type=int)
+        employee = db.session.get(User, employee_id) if employee_id else None
+        customer_name = (request.form.get('customer_name') or '').strip()
+        address = (request.form.get('address') or '').strip()
+        source = request.files.get('document')
+        if not employee or employee.role != 'user' or not employee.is_active:
+            flash('יש לבחור עובד פעיל', 'error')
+            return redirect(url_for('delivery_notes_page'))
+        if not customer_name or not address or len(customer_name) > 200 or len(address) > 500:
+            flash('יש למלא לקוח וכתובת תקינים', 'error')
+            return redirect(url_for('delivery_notes_page'))
+        if not source or not source.filename:
+            flash('יש לבחור תעודת משלוח', 'error')
+            return redirect(url_for('delivery_notes_page'))
+        try:
+            validate_upload(source, 'document', Config.MAX_DOCUMENT_SIZE)
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('delivery_notes_page'))
+
+        ext = source.filename.rsplit('.', 1)[-1].lower()
+        filename = secure_filename(source.filename) or f'delivery-note.{ext}'
+        note = DeliveryNote(employee_id=employee.id, created_by_id=current_user.id,
+                            customer_name=customer_name, address=address,
+                            original_filename=filename, original_path='')
+        path = None
+        try:
+            db.session.add(note)
+            db.session.flush()
+            relative = f'delivery_notes/{note.id}/original.{ext}'
+            path = os.path.join(Config.UPLOAD_FOLDER, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            source.save(path)
+            validate_delivery_source(path)
+            note.original_path = relative
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            if path and os.path.isfile(path):
+                os.remove(path)
+            flash(str(exc) if isinstance(exc, ValueError) else 'לא ניתן לשמור את התעודה', 'error')
+            return redirect(url_for('delivery_notes_page'))
+        flash('התעודה שויכה לעובד ותופיע באפליקציה שלו', 'success')
+        return redirect(url_for('delivery_note_detail', note_id=note.id))
+
+    query = DeliveryNote.query if current_user.is_admin() else DeliveryNote.query.filter_by(employee_id=current_user.id)
+    notes = query.order_by(DeliveryNote.created_at.desc(), DeliveryNote.id.desc()).limit(100).all()
+    employees = (User.query.filter_by(role='user', is_active=True).order_by(User.full_name).all()
+                 if current_user.is_admin() else [])
+    return render_template('delivery_notes.html', notes=notes, employees=employees)
+
+
+@app.route('/delivery-notes/<int:note_id>')
+@login_required
+def delivery_note_detail(note_id):
+    note = db.session.get(DeliveryNote, note_id)
+    if not note or not _can_view_delivery_note(note):
+        return render_template('404.html'), 404
+    return render_template('delivery_note_detail.html', note=note)
+
+
+@app.route('/delivery-notes/<int:note_id>/file/<kind>')
+@login_required
+def delivery_note_file(note_id, kind):
+    note = db.session.get(DeliveryNote, note_id)
+    if not note or not _can_view_delivery_note(note) or kind not in ('original', 'signed'):
+        return render_template('404.html'), 404
+    relative = note.original_path if kind == 'original' else note.signed_path
+    if not relative:
+        return render_template('404.html'), 404
+    response = send_from_directory(Config.UPLOAD_FOLDER, relative,
+                                   as_attachment=request.args.get('download') == '1',
+                                   download_name=(f'delivery-note-{note.id}-signed.pdf' if kind == 'signed'
+                                                  else note.original_filename))
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@app.route('/delivery-notes/<int:note_id>/preview')
+@login_required
+def delivery_note_preview(note_id):
+    """Show the first PDF page inside the mobile signing flow."""
+    note = db.session.get(DeliveryNote, note_id)
+    if not note or not _can_view_delivery_note(note) or not note.original_path.lower().endswith('.pdf'):
+        return render_template('404.html'), 404
+    source = os.path.join(Config.UPLOAD_FOLDER, note.original_path)
+    try:
+        document = pdfium.PdfDocument(source)
+        try:
+            page = document[0]
+            try:
+                image = page.render(scale=1.5).to_pil()
+                image.thumbnail((1400, 1800), Image.Resampling.LANCZOS)
+            finally:
+                page.close()
+        finally:
+            document.close()
+        output = BytesIO()
+        image.save(output, format='PNG', optimize=True)
+        output.seek(0)
+        return send_file(output, mimetype='image/png')
+    except Exception:
+        app.logger.exception('Could not preview delivery note %s', note_id)
+        return jsonify({'error': 'תצוגה מקדימה אינה זמינה'}), 500
+
+
+@app.route('/api/delivery-notes/<int:note_id>/sign', methods=['POST'])
+@login_required
+def sign_delivery_note(note_id):
+    note = DeliveryNote.query.filter_by(id=note_id).with_for_update().first()
+    if not note or note.employee_id != current_user.id or current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה לחתום על תעודה זו'}), 403
+    if note.signed_at:
+        return jsonify({'success': False, 'error': 'התעודה כבר נחתמה'}), 409
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'פרטי חתימה לא תקינים'}), 400
+    recipient_name = data.get('recipient_name')
+    signature_data = data.get('signature')
+    if data.get('acknowledged') is not True:
+        return jsonify({'success': False, 'error': 'יש לאשר את קבלת הסחורה לפני החתימה'}), 400
+    if not isinstance(recipient_name, str) or not isinstance(signature_data, str):
+        return jsonify({'success': False, 'error': 'יש למלא שם מקבל ולחתום'}), 400
+    recipient_name = recipient_name.strip()
+    if not 2 <= len(recipient_name) <= 200:
+        return jsonify({'success': False, 'error': 'יש למלא שם מקבל ולחתום'}), 400
+    if not signature_data.startswith('data:image/png;base64,') or len(signature_data) > 400_000:
+        return jsonify({'success': False, 'error': 'נתוני החתימה אינם תקינים'}), 400
+    try:
+        signature_bytes = base64.b64decode(signature_data.partition(',')[2], validate=True)
+        with Image.open(BytesIO(signature_bytes)) as image:
+            if (image.format != 'PNG' or image.mode != 'RGBA'
+                    or not 300 <= image.width <= 2400 or not 100 <= image.height <= 1200):
+                raise ValueError('נתוני החתימה אינם תקינים')
+            signature = image.convert('RGBA')
+        ink = signature.getchannel('A').point(lambda alpha: 255 if alpha > 32 else 0)
+        if ink.histogram()[255] < 30:
+            raise ValueError('יש לחתום בתוך המסגרת')
+        original_path = os.path.join(Config.UPLOAD_FOLDER, note.original_path)
+        if not os.path.isfile(original_path):
+            raise ValueError('קובץ התעודה המקורי חסר בשרת')
+        signed_at = datetime.utcnow()
+        pdf_bytes = create_signed_pdf(original_path, signature, note.customer_name,
+                                      note.address, recipient_name, signed_at, note.id)
+    except (binascii.Error, OSError, ValueError) as exc:
+        return jsonify({'success': False, 'error': str(exc) if isinstance(exc, ValueError)
+                        else 'נתוני החתימה אינם תקינים'}), 400
+    except Exception:
+        app.logger.exception('Could not build signed delivery note')
+        return jsonify({'success': False, 'error': 'לא ניתן ליצור תעודה חתומה'}), 500
+
+    relative = f'delivery_notes/{note.id}/signed.pdf'
+    path = os.path.join(Config.UPLOAD_FOLDER, relative)
+    tmp_path = f'{path}.{uuid.uuid4().hex}.tmp'
+    try:
+        with open(tmp_path, 'wb') as output:
+            output.write(pdf_bytes)
+        os.replace(tmp_path, path)
+        note.recipient_name = recipient_name
+        note.signed_at = signed_at
+        note.signed_path = relative
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        if os.path.isfile(tmp_path):
+            os.remove(tmp_path)
+        if os.path.isfile(path):
+            os.remove(path)
+        return jsonify({'success': False, 'error': 'שמירת החתימה נכשלה'}), 500
+    return jsonify({'success': True, 'redirect': url_for('delivery_note_detail', note_id=note.id)})
+
+
+@app.route('/api/delivery-notes/<int:note_id>', methods=['DELETE'])
+@login_required
+def delete_delivery_note(note_id):
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+    note = DeliveryNote.query.filter_by(id=note_id).with_for_update().first()
+    if not note:
+        return jsonify({'success': False, 'error': 'תעודה לא נמצאה'}), 404
+    if note.signed_at:
+        return jsonify({'success': False, 'error': 'אי אפשר למחוק תעודה שכבר נחתמה'}), 409
+    path = os.path.join(Config.UPLOAD_FOLDER, note.original_path)
+    db.session.delete(note)
+    db.session.commit()
+    if os.path.isfile(path):
+        os.remove(path)
+    return jsonify({'success': True})
+
+
+def _signed_note_for_report(raw_id, report_type, customer_name, address, report_id=None):
+    if not raw_id:
+        return None
+    if report_type != 'delivery' or not str(raw_id).isdecimal():
+        raise ValueError('תעודת משלוח שנבחרה אינה תקינה')
+    note = DeliveryNote.query.filter_by(id=int(raw_id)).with_for_update().first()
+    if (not note or note.employee_id != current_user.id or not note.signed_at
+            or not note.signed_path or note.report_id not in (None, report_id)):
+        raise ValueError('התעודה החתומה אינה זמינה לדוח זה')
+    if note.customer_name != customer_name or note.address != address:
+        raise ValueError('שם הלקוח והכתובת חייבים להתאים לתעודה החתומה')
+    if not os.path.isfile(os.path.join(Config.UPLOAD_FOLDER, note.signed_path)):
+        raise ValueError('קובץ התעודה החתומה חסר בשרת')
+    return note
+
 @app.route('/report/<int:report_id>/edit')
 @login_required
 def edit_report(report_id):
@@ -534,7 +762,15 @@ def edit_report(report_id):
         flash('יש לשחזר את הדוח לפני עריכתו', 'warning')
         return redirect(url_for('view_report', report_id=report_id))
 
-    return render_template('new_report.html', products=PRODUCTS, edit_mode=True, report_id=report.id)
+    signed_notes = DeliveryNote.query.filter_by(
+        employee_id=current_user.id, report_id=None
+    ).filter(DeliveryNote.signed_at.isnot(None)).order_by(DeliveryNote.signed_at.desc()).all()
+    existing_signed_note = DeliveryNote.query.filter_by(report_id=report.id).first()
+    if existing_signed_note and existing_signed_note.employee_id == current_user.id:
+        signed_notes.insert(0, existing_signed_note)
+    return render_template('new_report.html', products=PRODUCTS, edit_mode=True,
+                           report_id=report.id, signed_notes=signed_notes,
+                           selected_note_id=existing_signed_note.id if existing_signed_note else None)
 
 @app.route('/settings')
 @login_required
@@ -792,6 +1028,10 @@ def create_report():
             delivery_note = request.files.get('delivery_note') if report_type == 'delivery' else None
             if delivery_note and delivery_note.filename:
                 validate_upload(delivery_note, 'document', Config.MAX_DOCUMENT_SIZE)
+            signed_note = _signed_note_for_report(request.form.get('delivery_note_id'),
+                                                   report_type, customer_name, address)
+            if signed_note and delivery_note and delivery_note.filename:
+                raise ValueError('יש לבחור תעודה חתומה מהאפליקציה או להעלות קובץ, לא את שניהם')
             images = [image for image in request.files.getlist('images') if image and image.filename]
             if len(images) > 10:
                 raise ValueError('ניתן לצרף עד 10 תמונות')
@@ -806,7 +1046,8 @@ def create_report():
             client_id=client_id,
             report_type=report_type,
             customer_name=customer_name,
-            recipient_name=recipient_name if report_type == 'delivery' else None,
+            recipient_name=(signed_note.recipient_name if signed_note else recipient_name)
+                           if report_type == 'delivery' else None,
             company_project=company_project or None,
             installation_type=installation_type_display if report_type == 'installation' else None,
             installation_types=(
@@ -863,6 +1104,16 @@ def create_report():
                         original_filename=secure_filename(delivery_note.filename)
                     )
                     db.session.add(report_doc)
+            elif signed_note:
+                signed_dir = os.path.join(Config.UPLOAD_FOLDER, str(report.id), 'delivery_note')
+                os.makedirs(signed_dir, exist_ok=True)
+                doc_path = os.path.join(str(report.id), 'delivery_note', f'{uuid.uuid4().hex}.pdf')
+                shutil.copyfile(os.path.join(Config.UPLOAD_FOLDER, signed_note.signed_path),
+                                os.path.join(Config.UPLOAD_FOLDER, doc_path))
+                saved_paths.append(doc_path)
+                db.session.add(ReportDocument(report_id=report.id, document_path=doc_path,
+                                              original_filename=f'delivery-note-{signed_note.id}-signed.pdf'))
+                signed_note.report_id = report.id
 
         # Handle image uploads
         for image in images:
@@ -990,6 +1241,20 @@ def update_report(report_id):
             delivery_note = request.files.get('delivery_note') if report_type == 'delivery' else None
             if delivery_note and delivery_note.filename:
                 validate_upload(delivery_note, 'document', Config.MAX_DOCUMENT_SIZE)
+            existing_signed_note = DeliveryNote.query.filter_by(report_id=report.id).first()
+            selected_note_id = request.form.get('delivery_note_id')
+            if existing_signed_note:
+                if selected_note_id and selected_note_id != str(existing_signed_note.id):
+                    raise ValueError('כבר משויכת לדוח זה תעודה חתומה אחרת')
+                if (report_type != 'delivery' or existing_signed_note.customer_name != customer_name
+                        or existing_signed_note.address != address):
+                    raise ValueError('פרטי הדוח חייבים להתאים לתעודה החתומה')
+                signed_note = existing_signed_note
+            else:
+                signed_note = _signed_note_for_report(selected_note_id, report_type,
+                                                      customer_name, address, report.id)
+            if signed_note and delivery_note and delivery_note.filename:
+                raise ValueError('לדוח עם תעודה חתומה מהאפליקציה אין להעלות תעודה נוספת')
             images = [image for image in request.files.getlist('images') if image and image.filename]
             if report.images.count() + len(images) > 10:
                 raise ValueError('ניתן לצרף עד 10 תמונות בסך הכול')
@@ -1016,7 +1281,10 @@ def update_report(report_id):
         # Update report fields
         report.report_type = report_type
         report.customer_name = customer_name
-        report.recipient_name = recipient_name if report_type == 'delivery' else None
+        report.recipient_name = (
+            (signed_note.recipient_name if signed_note else recipient_name)
+            if report_type == 'delivery' else None
+        )
         report.company_project = company_project or None
         report.address = address
         report.status = status
@@ -1064,6 +1332,16 @@ def update_report(report_id):
                 document_path=doc_path,
                 original_filename=secure_filename(delivery_note.filename)
             ))
+        elif signed_note and not existing_signed_note:
+            signed_dir = os.path.join(Config.UPLOAD_FOLDER, str(report.id), 'delivery_note')
+            os.makedirs(signed_dir, exist_ok=True)
+            doc_path = os.path.join(str(report.id), 'delivery_note', f'{uuid.uuid4().hex}.pdf')
+            shutil.copyfile(os.path.join(Config.UPLOAD_FOLDER, signed_note.signed_path),
+                            os.path.join(Config.UPLOAD_FOLDER, doc_path))
+            saved_paths.append(doc_path)
+            db.session.add(ReportDocument(report_id=report.id, document_path=doc_path,
+                                          original_filename=f'delivery-note-{signed_note.id}-signed.pdf'))
+            signed_note.report_id = report.id
 
         for image in images:
             image_path = save_file(image, report.id, 'image')

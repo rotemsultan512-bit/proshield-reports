@@ -248,3 +248,73 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     .navbar-brand .brand-text { color: #edf5f9; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* Delivery notes: assignment, document review, and recipient signature. */
+.delivery-workspace { max-width: 1120px; margin: 0 auto; padding-bottom: 2rem; }
+.delivery-workspace .page-header { align-items: flex-end; gap: 1rem; }
+.delivery-panel { margin: 0 0 1.1rem; padding: 1.55rem; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 8px 26px rgba(12, 44, 70, .055); }
+.delivery-section-heading { display: flex; align-items: flex-start; gap: .85rem; margin-bottom: 1.4rem; }
+.delivery-section-heading h2 { margin: 0 0 .25rem; font-size: 1.16rem; color: var(--text); }
+.delivery-section-heading p { margin: 0; color: var(--text-secondary); line-height: 1.5; }
+.delivery-step { display: grid; place-items: center; flex: none; min-width: 2.4rem; height: 2.4rem; border-radius: 9px; background: #e6f1f9; color: #14517d; font-weight: 800; }
+.delivery-upload-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem 1rem; }
+.delivery-upload-form .form-group { margin: 0; min-width: 0; }
+.delivery-upload-form input, .delivery-upload-form select, .signed-note-picker select { width: 100%; min-height: 44px; }
+.delivery-file-field { grid-column: 1 / -1; }
+.delivery-file-field input { height: auto; padding: .7rem; border: 1px dashed #a7c6db; border-radius: 9px; }
+.delivery-file-field small, .signed-note-picker small { display: block; margin-top: .38rem; color: var(--text-secondary); }
+.delivery-upload-form > button { justify-self: start; grid-column: 1 / -1; }
+.delivery-note-list { display: grid; gap: .7rem; }
+.delivery-note-row { display: flex; align-items: center; gap: .85rem; padding: .9rem 1rem; border: 1px solid var(--border); border-radius: 11px; background: var(--bg); }
+.delivery-note-mark { display: grid; place-items: center; flex: none; width: 2.9rem; height: 2.9rem; border-radius: 9px; background: #e6f1f9; font-size: 1.4rem; }
+.delivery-note-summary { min-width: 0; flex: 1; }
+.delivery-note-title { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; }
+.delivery-note-summary p { margin: .25rem 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.delivery-note-summary small { color: var(--text-secondary); }
+.delivery-note-row-actions, .delivery-document-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.delivery-note-row-actions { justify-content: flex-end; }
+.delivery-report-link { font-size: .78rem; }
+.delivery-state { display: inline-flex; align-items: center; padding: .22rem .55rem; border-radius: 50px; font-size: .76rem; font-weight: 750; white-space: nowrap; }
+.delivery-state.waiting { background: #fff0d8; color: #795014; }
+.delivery-state.signed { background: #e0f4ea; color: #146240; }
+.delivery-empty { padding: 2.4rem .8rem; text-align: center; color: var(--text-secondary); }
+.delivery-empty span { font-size: 2rem; }
+.delivery-empty h3 { margin: .5rem 0 .3rem; color: var(--text); }
+.delivery-preview { display: grid; place-items: center; min-height: 420px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #eef3f7; }
+.delivery-preview iframe { display: block; width: 100%; height: min(67vh, 650px); border: 0; }
+.delivery-preview img { display: block; max-width: 100%; max-height: 650px; object-fit: contain; }
+.delivery-preview-caption { margin: .5rem 0 0; color: var(--text-secondary); font-size: .8rem; }
+.delivery-document-actions { margin-top: 1rem; }
+.delivery-sign-form { max-width: 900px; }
+.delivery-sign-form .form-group { max-width: 500px; }
+.delivery-signature-header { display: flex; justify-content: space-between; align-items: center; margin: .8rem 0 .4rem; font-weight: 700; }
+#signatureCanvas { display: block; width: 100%; aspect-ratio: 3 / 1; border: 2px dashed #92b6cb; border-radius: 12px; background: #fff; touch-action: none; cursor: crosshair; }
+.delivery-signature-hint { margin: .45rem 0 1.1rem; color: var(--text-secondary); font-size: .82rem; }
+.delivery-confirm { display: flex; align-items: flex-start; gap: .55rem; max-width: 700px; margin: 0 0 1.2rem; line-height: 1.5; }
+.delivery-confirm input { flex: none; margin-top: .3rem; }
+.delivery-sign-form .form-error { display: block; margin: 0 0 .7rem; color: #b23434; }
+.delivery-sign-form .form-error[hidden] { display: none; }
+.delivery-complete { border-color: #a7d8bd; background: #f2faf5; }
+.delivery-dashboard-callout { display: flex; align-items: center; justify-content: space-between; gap: 1.4rem; margin: 0 0 1.15rem; padding: 1.2rem 1.35rem; border-radius: 14px; border: 1px solid #b9d8e9; background: #eaf4fa; }
+.delivery-dashboard-callout h2 { margin: .1rem 0; font-size: 1.1rem; color: #153f5c; }
+.delivery-dashboard-callout p { margin: 0; color: #466171; }
+.delivery-dashboard-links { display: flex; flex-direction: column; gap: .35rem; min-width: 220px; }
+.delivery-dashboard-links a { font-weight: 700; }
+.signed-note-picker { padding: 1rem; border: 1px solid #b9d8e9; border-radius: 10px; background: #eef7fc; margin-bottom: 1rem; }
+@media (max-width: 650px) {
+    .delivery-workspace .page-header { flex-direction: column; align-items: stretch; }
+    .delivery-detail .page-header > .delivery-state { align-self: flex-start; }
+    .delivery-panel { padding: 1rem; border-radius: 12px; }
+    .delivery-upload-form { grid-template-columns: minmax(0, 1fr); }
+    .delivery-file-field, .delivery-upload-form > button { grid-column: 1; }
+    .delivery-upload-form > button { width: 100%; }
+    .delivery-note-row { align-items: flex-start; flex-wrap: wrap; padding: .85rem; }
+    .delivery-note-row-actions { width: 100%; justify-content: flex-start; padding-inline-start: 3.7rem; }
+    .delivery-note-row-actions .btn { min-height: 38px; }
+    .delivery-preview { min-height: 280px; }
+    .delivery-preview img { max-height: 420px; }
+    .delivery-preview iframe { height: 52vh; }
+    .delivery-document-actions .btn { flex: 1 1 auto; }
+    .delivery-dashboard-callout { flex-direction: column; align-items: stretch; }
+    .delivery-dashboard-links { min-width: 0; }
+}

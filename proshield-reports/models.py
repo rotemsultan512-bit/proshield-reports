@@ -52,6 +52,41 @@ class PasswordResetToken(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
 
 
+class DeliveryNote(db.Model):
+    """A manager-provided delivery document awaiting an employee's recipient signature."""
+    __tablename__ = 'delivery_notes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    customer_name = db.Column(db.String(200), nullable=False)
+    address = db.Column(db.String(500), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=False)
+    original_path = db.Column(db.String(500), nullable=False)
+    signed_path = db.Column(db.String(500))
+    recipient_name = db.Column(db.String(200))
+    signed_at = db.Column(db.DateTime)
+    report_id = db.Column(db.Integer, db.ForeignKey('reports.id'), unique=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    employee = db.relationship('User', foreign_keys=[employee_id])
+    creator = db.relationship('User', foreign_keys=[created_by_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'employee_id': self.employee_id,
+            'employee_name': self.employee.full_name if self.employee else '',
+            'customer_name': self.customer_name,
+            'address': self.address,
+            'original_filename': self.original_filename,
+            'recipient_name': self.recipient_name,
+            'signed_at': self.signed_at.isoformat() + 'Z' if self.signed_at else None,
+            'report_id': self.report_id,
+            'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
+        }
+
+
 class Report(db.Model):
     __tablename__ = 'reports'
 

@@ -16,6 +16,15 @@
         </a>
     </div>
 
+    {% if pending_delivery_notes %}
+    <section class="delivery-dashboard-callout" aria-labelledby="pendingDeliveryTitle">
+        <div><span class="section-kicker">ממתין בשטח</span><h2 id="pendingDeliveryTitle">{% if pending_delivery_notes|length == 1 %}תעודת משלוח אחת לחתימה{% else %}{{ pending_delivery_notes|length }} תעודות משלוח לחתימה{% endif %}</h2><p>הציגו את התעודה למקבל הסחורה וחתמו יחד באפליקציה.</p></div>
+        <div class="delivery-dashboard-links">
+            {% for note in pending_delivery_notes %}<a href="{{ url_for('delivery_note_detail', note_id=note.id) }}">{{ note.customer_name }} · {{ note.address }} ←</a>{% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
     <!-- KPI Stats Cards -->
     <div class="stats-row" id="statsRow">
         <div class="stat-card gradient-blue">

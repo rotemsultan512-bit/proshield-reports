@@ -273,6 +273,16 @@
         <!-- Step 6: Delivery Note (Delivery Only - OPTIONAL) -->
         <div class="form-section delivery-note-section" id="deliveryNoteSection" style="display:none;">
             <h2>6. תעודת משלוח חתומה <span class="optional-badge">אופציונלי</span></h2>
+            {% if signed_notes %}
+            <div class="form-group signed-note-picker">
+                <label for="signedDeliveryNote">תעודה שנחתמה באפליקציה</label>
+                <select id="signedDeliveryNote" name="delivery_note_id">
+                    <option value="">ללא תעודה מהאפליקציה</option>
+                    {% for note in signed_notes %}<option value="{{ note.id }}" data-customer="{{ note.customer_name }}" data-address="{{ note.address }}" data-recipient="{{ note.recipient_name }}" {% if selected_note_id == note.id or request.args.get('delivery_note_id') == note.id|string %}selected{% endif %}>#{{ note.id }} · {{ note.customer_name }} · {{ note.address }}</option>{% endfor %}
+                </select>
+                <small>בחירה בתעודה תמלא את פרטי הלקוח והכתובת ותצרף את ה־PDF החתום לדוח.</small>
+            </div>
+            {% endif %}
             <div class="delivery-note-upload">
                 <div class="upload-area" id="deliveryNoteUploadArea">
                     <input type="file" id="deliveryNoteInput" name="delivery_note" accept=".pdf,.jpg,.jpeg,.png,image/*" style="display:none;">
@@ -343,6 +353,7 @@
     const deliveryNotePreview = document.getElementById('deliveryNotePreview');
     const deliveryNoteSection = document.getElementById('deliveryNoteSection');
     const deliveryNoteError = document.getElementById('deliveryNoteError');
+    const signedDeliveryNote = document.getElementById('signedDeliveryNote');
     const submitBtn = document.getElementById('submitBtn');
 
     // Installation details
@@ -393,6 +404,27 @@
         const btnText = submitBtn.querySelector('.btn-text');
         if (btnText) btnText.textContent = '💾 עדכן דוח';
     }
+
+    function applySignedDeliveryNote() {
+        const selected = signedDeliveryNote?.selectedOptions[0];
+        const hasSignedNote = Boolean(selected?.value);
+        deliveryNoteUploadArea.style.display = hasSignedNote ? 'none' : '';
+        if (hasSignedNote) {
+            uploadedDeliveryNote = null;
+            deliveryNotePreview.innerHTML = '';
+            deliveryNoteInput.value = '';
+            deliveryNoteCameraInput.value = '';
+            document.querySelector('input[name="report_type"][value="delivery"]').checked = true;
+            document.querySelector('input[name="report_type"][value="delivery"]').dispatchEvent(new Event('change'));
+            document.getElementById('address').value = selected.dataset.address || '';
+            customerNameInput.value = selected.dataset.customer || '';
+            recipientNameInput.value = selected.dataset.recipient || '';
+        }
+        document.getElementById('address').readOnly = hasSignedNote;
+        customerNameInput.readOnly = hasSignedNote;
+        recipientNameInput.readOnly = hasSignedNote;
+    }
+    signedDeliveryNote?.addEventListener('change', applySignedDeliveryNote);
 
     loadCompanyProjects();
     loadReportForEdit();
@@ -651,6 +683,10 @@
                 installationDetails.style.display = 'none';
                 resetInstallationFields();
             } else {
+                if (signedDeliveryNote?.value) {
+                    signedDeliveryNote.value = '';
+                    applySignedDeliveryNote();
+                }
                 addressLabel.textContent = 'כתובת התקנה';
                 photosLabel.textContent = 'תמונות הפרויקט';
                 deliveryNoteSection.style.display = 'none';
@@ -1041,6 +1077,9 @@
         formData.append('customer_name', customerName);
         formData.append('company_project', companyProjectInput ? companyProjectInput.value.trim() : '');
         formData.append('recipient_name', recipientName);
+        if (reportType === 'delivery' && signedDeliveryNote?.value) {
+            formData.append('delivery_note_id', signedDeliveryNote.value);
+        }
         formData.append('report_datetime', reportDateTime);
         formData.append('products', JSON.stringify(selectedProducts));
 
@@ -1241,6 +1280,8 @@
             });
         });
     }
+
+    if (signedDeliveryNote?.value) applySignedDeliveryNote();
 
     function escapeHtml(text) {
         const div = document.createElement('div');
