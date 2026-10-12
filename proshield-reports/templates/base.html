@@ -21,7 +21,7 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="/static/css/style.css?v=20261012-03">
-    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-02">
+    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-03">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -161,7 +161,7 @@
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20261013-02';
+            const APP_VERSION = '20261013-03';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);

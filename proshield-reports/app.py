@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, send_file, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
@@ -6,7 +6,9 @@ from PIL import Image
 from datetime import datetime, timedelta
 from io import BytesIO
 import hashlib
+import hmac
 import ipaddress
+import secrets
 import tempfile
 import zipfile
 from sqlalchemy import or_, text
@@ -16,7 +18,7 @@ import json
 import math
 
 from config import Config
-from models import db, User, LoginAttempt, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
+from models import db, User, LoginAttempt, PasswordResetToken, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -55,7 +57,14 @@ def _is_production_runtime() -> bool:
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        user = db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
+    if not user or not user.is_active:
+        return None
+    # Existing sessions start at version zero; a password change revokes them.
+    return user if session.get('auth_version', 0) == (user.session_version or 0) else None
 
 def init_db():
     """Initialize the schema and inventory catalog.
@@ -71,6 +80,11 @@ def init_db():
         from sqlalchemy import text
         try:
             if db.engine.dialect.name == 'sqlite':
+                user_columns = [
+                    row[1] for row in db.session.execute(text('PRAGMA table_info(users)')).fetchall()
+                ]
+                if 'session_version' not in user_columns:
+                    db.session.execute(text('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0'))
                 report_columns = [
                     row[1] for row in db.session.execute(text('PRAGMA table_info(reports)')).fetchall()
                 ]
@@ -161,6 +175,7 @@ def init_db():
 
             elif db.engine.dialect.name == 'postgresql':
                 # Postgres supports IF NOT EXISTS
+                db.session.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS customer_name VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS company_project VARCHAR(200)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS recipient_name VARCHAR(200)'))
@@ -446,6 +461,7 @@ def login():
             LoginAttempt.query.filter_by(client_key=client_key).delete()
             db.session.commit()
             login_user(user, remember=True)
+            session['auth_version'] = user.session_version or 0
             if request.is_json:
                 return jsonify({'success': True, 'redirect': url_for('dashboard')})
             return redirect(url_for('dashboard'))
@@ -464,7 +480,13 @@ def login():
 @login_required
 def logout():
     logout_user()
+    session.pop('auth_version', None)
     return redirect(url_for('login'))
+
+
+@app.route('/reset-password')
+def reset_password_page():
+    return render_template('reset_password.html')
 
 @app.route('/dashboard')
 @login_required
@@ -1141,15 +1163,99 @@ def change_password():
             or not current_user.check_password(current_password)):
         return jsonify({'success': False, 'error': 'הסיסמה הנוכחית שגויה'}), 400
 
-    if not isinstance(new_password, str) or len(new_password) < 12:
-        return jsonify({'success': False, 'error': 'הסיסמה החדשה חייבת להכיל לפחות 12 תווים'}), 400
+    if not isinstance(new_password, str) or len(new_password) < 8:
+        return jsonify({'success': False, 'error': 'הסיסמה החדשה חייבת להכיל לפחות 8 תווים'}), 400
     if len(new_password.encode('utf-8')) > 72:
         return jsonify({'success': False, 'error': 'הסיסמה החדשה ארוכה מדי'}), 400
 
     current_user.set_password(new_password)
+    current_user.session_version = (current_user.session_version or 0) + 1
+    PasswordResetToken.query.filter_by(user_id=current_user.id).delete()
     db.session.commit()
+    session['auth_version'] = current_user.session_version
 
     return jsonify({'success': True, 'message': 'הסיסמה שונתה בהצלחה'})
+
+
+@app.route('/api/users/<int:user_id>/password-reset', methods=['POST'])
+@login_required
+def issue_password_reset(user_id):
+    """An administrator issues a short-lived, one-use recovery code to an employee."""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'פרטי הבקשה אינם תקינים'}), 400
+
+    admin_password = data.get('admin_password')
+    client_key = hashlib.sha256(
+        f'password-reset-issue:{current_user.id}:{request.remote_addr or "unknown"}'.encode('utf-8')
+    ).hexdigest()
+    now = datetime.utcnow()
+    recent = LoginAttempt.query.filter(
+        LoginAttempt.client_key == client_key,
+        LoginAttempt.created_at >= now - timedelta(minutes=15)
+    ).count()
+    if recent >= 5:
+        return jsonify({'success': False, 'error': 'יותר מדי ניסיונות. נסה שוב בעוד 15 דקות.'}), 429
+    if (not isinstance(admin_password, str) or len(admin_password.encode('utf-8')) > 72
+            or not current_user.check_password(admin_password)):
+        db.session.add(LoginAttempt(client_key=client_key, created_at=now))
+        db.session.commit()
+        return jsonify({'success': False, 'error': 'סיסמת המנהל שגויה'}), 403
+
+    user = db.session.get(User, user_id)
+    if not user or user.role != 'user' or not user.is_active:
+        return jsonify({'success': False, 'error': 'ניתן להפיק קוד רק לעובד פעיל'}), 400
+
+    code = secrets.token_urlsafe(24)
+    PasswordResetToken.query.filter_by(user_id=user.id).delete()
+    db.session.add(PasswordResetToken(
+        user_id=user.id,
+        token_hash=hashlib.sha256(code.encode('utf-8')).hexdigest(),
+        expires_at=now + timedelta(minutes=30)
+    ))
+    LoginAttempt.query.filter_by(client_key=client_key).delete()
+    db.session.commit()
+    return jsonify({'success': True, 'username': user.username, 'code': code, 'expires_in_minutes': 30})
+
+
+@app.route('/api/password-reset', methods=['POST'])
+def redeem_password_reset():
+    """The employee chooses a new password using the administrator's code."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'פרטי הבקשה אינם תקינים'}), 400
+
+    username = data.get('username')
+    code = data.get('code')
+    new_password = data.get('new_password')
+    if (not isinstance(username, str) or len(username) > 80
+            or not isinstance(code, str) or len(code) > 64
+            or not isinstance(new_password, str)):
+        return jsonify({'success': False, 'error': 'פרטי הבקשה אינם תקינים'}), 400
+    if len(new_password) < 8:
+        return jsonify({'success': False, 'error': 'הסיסמה החדשה חייבת להכיל לפחות 8 תווים'}), 400
+    if len(new_password.encode('utf-8')) > 72:
+        return jsonify({'success': False, 'error': 'הסיסמה החדשה ארוכה מדי'}), 400
+
+    token_hash = hashlib.sha256(code.strip().encode('utf-8')).hexdigest()
+    token = PasswordResetToken.query.filter_by(token_hash=token_hash).first()
+    user = db.session.get(User, token.user_id) if token else None
+    if (not token or token.expires_at <= datetime.utcnow() or not user
+            or not user.is_active or user.role != 'user'
+            or not hmac.compare_digest(user.username, username.strip())):
+        return jsonify({'success': False, 'error': 'קוד האיפוס שגוי או שפג תוקפו'}), 400
+
+    user.set_password(new_password)
+    user.session_version = (user.session_version or 0) + 1
+    PasswordResetToken.query.filter_by(user_id=user.id).delete()
+    db.session.commit()
+    if current_user.is_authenticated and current_user.id == user.id:
+        logout_user()
+        session.pop('auth_version', None)
+    return jsonify({'success': True, 'message': 'הסיסמה אופסה. ניתן להתחבר עם הסיסמה החדשה.'})
 
 @app.route('/api/users', methods=['GET'])
 @login_required
@@ -1193,7 +1299,7 @@ def create_user():
     if not all([username, password, full_name]):
         return jsonify({'success': False, 'error': 'יש למלא את כל השדות'}), 400
 
-    if (len(username) > 80 or len(full_name) > 100 or len(password) < 12
+    if (len(username) > 80 or len(full_name) > 100 or len(password) < 8
             or len(password.encode('utf-8')) > 72 or role not in ('user', 'admin')):
         return jsonify({'success': False, 'error': 'סיסמה או תפקיד לא תקינים'}), 400
 

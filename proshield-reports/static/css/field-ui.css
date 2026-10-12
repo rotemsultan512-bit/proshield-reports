@@ -74,6 +74,23 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .login-form .form-group input { min-height: 48px; color: #152637; background: #fff; border-color: #dce3e9; }
 .login-form .btn-primary { min-height: 49px; }
 .login-footer { margin-top: 1.6rem; font-size: .77rem; }
+.password-recovery-link { display: block; margin-top: 1rem; color: var(--brand-secondary); font-size: .86rem; font-weight: 750; text-align: center; }
+.password-recovery-link:hover { text-decoration: underline; }
+.reset-success { padding: 1rem; border: 1px solid #b9d8c8; border-radius: 10px; background: #edf8f1; color: #17482e; text-align: center; }
+.reset-success p { margin-bottom: .75rem; }
+.password-reset-page { min-height: 100dvh; overflow-y: auto; align-items: flex-start; }
+.password-reset-page .login-container { margin-block: auto; padding-block: 1rem; }
+.reset-card { padding: 1.5rem; }
+.reset-card .login-header { margin-bottom: 1.1rem; }
+.reset-card .login-logo { margin-bottom: .65rem; }
+.reset-card .login-logo img { height: 43px; }
+.reset-card .login-form .form-group { margin-bottom: .8rem; }
+.reset-card .login-form .form-group input { min-height: 43px; padding: .6rem .75rem; }
+.reset-code-result { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.reset-code-result p { margin-bottom: .8rem; font-size: .88rem; }
+.reset-code-result label { display: block; font-weight: 700; margin-bottom: .4rem; }
+.reset-code-result input { width: 100%; padding: .65rem; border: 1px solid var(--border); border-radius: 8px; font-family: monospace; font-size: .95rem; text-align: center; }
+.reset-code-result .modal-actions { margin-top: .8rem; }
 .install-prompt { right: 1rem; left: auto; bottom: 1rem; width: min(420px, calc(100vw - 2rem)); padding: .75rem 1rem; border-radius: 10px; box-shadow: 0 12px 32px rgba(17, 49, 70, .14); }
 .install-close { min-width: 30px; min-height: 30px; }
 

@@ -15,7 +15,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="stylesheet" href="/static/css/style.css?v=20261012-02">
-    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-02">
+    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-03">
 </head>
 <body class="login-page">
     <div class="login-container">
@@ -59,6 +59,8 @@
                     </span>
                 </button>
             </form>
+
+            <a class="password-recovery-link" href="{{ url_for('reset_password_page') }}">שכחת סיסמה? איפוס בעזרת קוד מהמנהל</a>
 
             <div class="login-footer">
                 <p>&copy; 2026 Proshield</p>

@@ -164,7 +164,8 @@
             </div>
             <div class="form-group">
                 <label>סיסמה</label>
-                <input type="password" id="newPassword" required minlength="12">
+                <input type="password" id="newPassword" required minlength="8" autocomplete="new-password">
+                <small>לפחות 8 תווים</small>
             </div>
             <div class="form-group">
                 <label>שם מלא</label>
@@ -239,6 +240,33 @@
                 <button type="submit" class="btn btn-primary">שמור</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Employee password recovery -->
+<div class="modal" id="resetPasswordModal">
+    <div class="modal-content">
+        <h3>איפוס סיסמה לעובד</h3>
+        <p>הפקת קוד עבור <strong id="resetEmployeeName"></strong>. העובד יבחר סיסמה חדשה בעצמו.</p>
+        <form id="issueResetForm">
+            <div class="form-group">
+                <label for="resetAdminPassword">הסיסמה שלך כמנהל</label>
+                <input type="password" id="resetAdminPassword" required autocomplete="current-password">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost close-reset-modal">ביטול</button>
+                <button type="submit" class="btn btn-primary" id="issueResetButton">הפק קוד איפוס</button>
+            </div>
+        </form>
+        <div id="resetCodeResult" class="reset-code-result" style="display:none;">
+            <p>יש להעביר לעובד את שם המשתמש והקוד בערוץ פרטי. הקוד תקף ל־30 דקות ולשימוש אחד.</p>
+            <label for="resetCodeOutput">קוד האיפוס</label>
+            <input type="text" id="resetCodeOutput" dir="ltr" readonly aria-label="קוד האיפוס">
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="copyResetCode">העתק קוד</button>
+                <button type="button" class="btn btn-primary close-reset-modal">סיום</button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -340,6 +368,7 @@
                 <span class="user-role ${user.role}">${user.role === 'admin' ? 'מנהל' : 'משתמש'}</span>
                 ${user.id !== {{ current_user.id }} ? `
                     <button class="btn btn-ghost btn-sm edit-user-btn" data-id="${user.id}">✏️</button>
+                    ${user.role === 'user' && user.is_active ? `<button class="btn btn-ghost btn-sm reset-user-btn" data-id="${user.id}" aria-label="איפוס סיסמה לעובד">איפוס סיסמה</button>` : ''}
                     <button class="btn btn-ghost btn-sm delete-user-btn" data-id="${user.id}" data-name="${escapeHtml(user.full_name)}">
                         🗑️
                     </button>
@@ -370,7 +399,68 @@
                 document.getElementById('editUserModal').classList.add('active');
             });
         });
+
+        document.querySelectorAll('.reset-user-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const user = usersCache.find(u => u.id === Number(btn.dataset.id));
+                if (!user) return;
+                resetEmployeeId = user.id;
+                document.getElementById('resetEmployeeName').textContent = `${user.full_name} (@${user.username})`;
+                document.getElementById('issueResetForm').reset();
+                document.getElementById('issueResetForm').style.display = '';
+                document.getElementById('resetCodeOutput').value = '';
+                document.getElementById('resetCodeResult').style.display = 'none';
+                document.getElementById('resetPasswordModal').classList.add('active');
+                document.getElementById('resetAdminPassword').focus();
+            });
+        });
     }
+
+    let resetEmployeeId = null;
+    document.querySelectorAll('.close-reset-modal').forEach(button => {
+        button.addEventListener('click', () => {
+            document.getElementById('resetPasswordModal').classList.remove('active');
+            document.getElementById('resetCodeOutput').value = '';
+            document.getElementById('issueResetForm').reset();
+            resetEmployeeId = null;
+        });
+    });
+
+    document.getElementById('issueResetForm').addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!resetEmployeeId) return;
+        const button = document.getElementById('issueResetButton');
+        button.disabled = true;
+        try {
+            const response = await fetch(`/api/users/${resetEmployeeId}/password-reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_password: document.getElementById('resetAdminPassword').value })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'לא ניתן להפיק קוד איפוס');
+            document.getElementById('resetAdminPassword').value = '';
+            document.getElementById('issueResetForm').style.display = 'none';
+            document.getElementById('resetCodeOutput').value = data.code;
+            document.getElementById('resetCodeResult').style.display = 'block';
+            showToast('קוד איפוס הופק. הוא מוצג פעם אחת בלבד.', 'success');
+        } catch (error) {
+            showToast(error.message || 'שגיאת תקשורת', 'error');
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    document.getElementById('copyResetCode').addEventListener('click', async () => {
+        const output = document.getElementById('resetCodeOutput');
+        try {
+            await navigator.clipboard.writeText(output.value);
+            showToast('הקוד הועתק', 'success');
+        } catch (error) {
+            output.select();
+            showToast('הקוד סומן. ניתן להעתיק אותו ידנית.', 'info');
+        }
+    });
 
     function renderExportUsers(users) {
         const select = document.getElementById('exportUserId');
