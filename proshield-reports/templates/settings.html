@@ -52,12 +52,21 @@
         </div>
 
         <!-- App Info Card -->
+        {% if current_user.is_admin() %}
+        <div class="settings-card">
+            <h2>📁 גיבוי תמונות ומסמכים</h2>
+            <p>הורדת כל הקבצים שצורפו לדוחות. גיבוי בסיס הנתונים מתבצע בנפרד ב־Render.</p>
+            <a href="{{ url_for('download_uploads_backup') }}" class="btn btn-secondary btn-block">הורד גיבוי קבצים</a>
+        </div>
+        {% endif %}
+
+        <!-- App Info Card -->
         <div class="settings-card">
             <h2>ℹ️ אודות האפליקציה</h2>
             <div class="app-info">
                 <div class="info-row">
                     <span class="info-label">גרסה:</span>
-                    <span class="info-value">1.0.0</span>
+                    <span class="info-value">2026.10</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">סטטוס PWA:</span>
@@ -98,8 +107,8 @@
             return;
         }
 
-        if (newPassword.length < 6) {
-            showToast('הסיסמה חייבת להכיל לפחות 6 תווים', 'error');
+        if (newPassword.length < 12) {
+            showToast('הסיסמה חייבת להכיל לפחות 12 תווים', 'error');
             return;
         }
 
@@ -151,21 +160,21 @@
     }
 
     // Install PWA
-    let deferredPrompt;
+    let settingsInstallPrompt;
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
-        deferredPrompt = e;
+        settingsInstallPrompt = e;
         document.getElementById('installPwaBtn').style.display = 'block';
     });
 
     document.getElementById('installPwaBtn').addEventListener('click', async () => {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
+        if (settingsInstallPrompt) {
+            settingsInstallPrompt.prompt();
+            const { outcome } = await settingsInstallPrompt.userChoice;
             if (outcome === 'accepted') {
                 showToast('האפליקציה הותקנה בהצלחה', 'success');
             }
-            deferredPrompt = null;
+            settingsInstallPrompt = null;
             document.getElementById('installPwaBtn').style.display = 'none';
         }
     });
