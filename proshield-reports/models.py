@@ -51,6 +51,9 @@ class Report(db.Model):
     status = db.Column(db.String(20), nullable=False)  # 'completed' or 'return_required'
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
+    is_archived = db.Column(db.Boolean, nullable=False, default=False)
+    archived_at = db.Column(db.DateTime)
+    archived_by_user_id = db.Column(db.Integer)
 
     # Installation extra fields (relevant when report_type == 'installation')
     # installation_type is kept for backward compatibility / display
@@ -84,6 +87,8 @@ class Report(db.Model):
             'additional_worker_name': self.additional_worker_name,
             'address': self.address,
             'status': self.status,
+            'is_archived': self.is_archived,
+            'archived_at': self.archived_at.isoformat() if self.archived_at else None,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None,
             'notes': self.notes,
             'products': [p.to_dict() for p in self.products],

@@ -9,9 +9,18 @@
         <h1>{% if edit_mode %}✏️ עריכת דוח{% else %}📝 דוח חדש{% endif %}</h1>
     </div>
 
+    <nav class="report-steps" aria-label="מעבר בין חלקי הדוח">
+        <a href="#typeSection">סוג דוח</a>
+        <a href="#detailsSection">פרטי עבודה</a>
+        <a href="#productsSection">מוצרים <span id="productCountBadge">0</span></a>
+        <a href="#statusSection">סטטוס</a>
+        <a href="#photosSection">תמונות</a>
+        <a href="#notesSection">סיום</a>
+    </nav>
+
     <form id="reportForm" class="report-form" data-report-id="{{ report_id or '' }}" data-edit-mode="{{ 'true' if edit_mode else 'false' }}">
         <!-- Step 1: Report Type -->
-        <div class="form-section">
+        <div class="form-section" id="typeSection">
             <h2>1. סוג דוח</h2>
             <div class="report-type-selector">
                 <label class="type-option">
@@ -34,7 +43,7 @@
         </div>
 
         <!-- Step 2: Address + Customer + Date/Time -->
-        <div class="form-section">
+        <div class="form-section" id="detailsSection">
             <h2>2. <span id="addressLabel">כתובת</span></h2>
             <div class="form-group">
                 <input type="text" id="address" name="address" placeholder="הזן כתובת..." required>
@@ -162,7 +171,7 @@
         </div>
 
         <!-- Step 3: Products -->
-        <div class="form-section">
+        <div class="form-section" id="productsSection">
             <h2>3. מוצרים</h2>
             <div class="products-selector">
                 <button type="button" class="dropdown-toggle" id="productsToggle">בחר מוצרים</button>
@@ -218,7 +227,7 @@
         </div>
 
         <!-- Step 4: Status -->
-        <div class="form-section">
+        <div class="form-section" id="statusSection">
             <h2>4. סטטוס</h2>
             <div class="status-selector">
                 <label class="status-option">
@@ -239,9 +248,10 @@
         </div>
 
         <!-- Step 5: Photos -->
-        <div class="form-section">
+        <div class="form-section" id="photosSection">
             <h2>5. <span id="photosLabel">תמונות</span></h2>
             <div class="photos-upload">
+                <div class="existing-attachments" id="existingAttachments" style="display:none;"></div>
                 <div class="upload-area" id="photosUploadArea">
                     <input type="file" id="photosInput" name="images" accept="image/*" multiple style="display:none;">
                     <input type="file" id="photosCameraInput" accept="image/*" capture="environment" multiple style="display:none;">
@@ -285,7 +295,7 @@
         </div>
 
         <!-- Step 7: Notes -->
-        <div class="form-section">
+        <div class="form-section" id="notesSection">
             <h2 id="notesStepLabel">6. הערות (אופציונלי)</h2>
             <div class="form-group">
                 <textarea id="notes" name="notes" rows="3" placeholder="הערות נוספות..."></textarea>
@@ -368,6 +378,8 @@
     let selectedProducts = [];
     let uploadedPhotos = [];
     let uploadedDeliveryNote = null;
+    let existingImageCount = 0;
+    let pendingPhotoReads = 0;
 
     // Custom manual entries
     let customInstallationTypes = [];
@@ -587,6 +599,16 @@
                 updateSelectedProducts();
             }
 
+            existingImageCount = Array.isArray(data.images) ? data.images.length : 0;
+            const existingAttachments = document.getElementById('existingAttachments');
+            const documentCount = Array.isArray(data.documents) ? data.documents.length : 0;
+            if (existingImageCount || documentCount) {
+                existingAttachments.style.display = 'flex';
+                existingAttachments.innerHTML = `<span>כבר שמורים בדוח: ${existingImageCount} תמונות, ${documentCount} מסמכים.</span>
+                    <a href="/report/${editReportId}" target="_blank" rel="noopener">הצג קבצים קיימים</a>
+                    <small>קבצים חדשים יתווספו לקיימים.</small>`;
+            }
+
             if (productsDropdown) {
                 productsDropdown.classList.add('open');
             }
@@ -722,6 +744,8 @@
             });
         });
 
+        document.getElementById('productCountBadge').textContent = String(selectedProducts.length);
+
         if (selectedProducts.length === 0) {
             selectedList.innerHTML = '<p class="no-selection">לא נבחרו מוצרים</p>';
         } else {
@@ -770,7 +794,7 @@
         const maxSize = 5 * 1024 * 1024; // 5MB
 
         files.forEach(file => {
-            if (uploadedPhotos.length >= maxFiles) {
+            if (existingImageCount + uploadedPhotos.length + pendingPhotoReads >= maxFiles) {
                 showToast('ניתן להעלות עד 10 תמונות', 'warning');
                 return;
             }
@@ -781,12 +805,18 @@
             }
 
             const reader = new FileReader();
+            pendingPhotoReads++;
             reader.onload = (e) => {
+                pendingPhotoReads--;
                 uploadedPhotos.push({
                     file: file,
                     preview: e.target.result
                 });
                 renderPhotosPreview();
+            };
+            reader.onerror = () => {
+                pendingPhotoReads--;
+                showToast(`לא ניתן לקרוא את ${file.name}`, 'error');
             };
             reader.readAsDataURL(file);
         });

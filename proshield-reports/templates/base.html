@@ -13,14 +13,14 @@
     <title>{% block title %}Proshield Reports{% endblock %}</title>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json?v=20261012-01">
+    <link rel="manifest" href="/manifest.json?v=20261012-02">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261012-01">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261012-02">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -151,14 +151,14 @@
             return originalFetch(input, options);
         };
     </script>
-    <script src="/static/js/offline-queue.js?v=20261012-01"></script>
+    <script src="/static/js/offline-queue.js?v=20261012-02"></script>
     <script src="/static/js/app.js?v=20260204-01"></script>
     {% block extra_js %}{% endblock %}
 
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20261012-01';
+            const APP_VERSION = '20261012-03';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);
