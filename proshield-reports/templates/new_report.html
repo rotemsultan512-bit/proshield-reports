@@ -6,7 +6,7 @@
 <div class="new-report-page">
     <div class="page-header">
         <a href="{{ url_for('dashboard') }}" class="back-link">◀ חזרה לדוחות</a>
-        <h1>{% if edit_mode %}✏️ עריכת דוח{% else %}📝 דוח חדש{% endif %}</h1>
+        <h1>{% if edit_mode %}עריכת דוח{% else %}דיווח חדש{% endif %}</h1>
     </div>
 
     <nav class="report-steps" aria-label="מעבר בין חלקי הדוח">
@@ -46,7 +46,8 @@
         <div class="form-section" id="detailsSection">
             <h2>2. <span id="addressLabel">כתובת</span></h2>
             <div class="form-group">
-                <input type="text" id="address" name="address" placeholder="הזן כתובת..." required>
+                <label for="address">כתובת העבודה <span class="required-badge">חובה</span></label>
+                <input type="text" id="address" name="address" placeholder="רחוב, מספר ועיר" autocomplete="street-address" required>
             </div>
 
             <div class="form-group" id="customerNameWrap" style="display:none;">
