@@ -7,13 +7,14 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Proshield Reports">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <title>התחברות - Proshield Reports</title>
 
-    <link rel="manifest" href="/manifest.json?v=20260203-07">
+    <link rel="manifest" href="/manifest.json?v=20261012-01">
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260203-07">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261012-01">
 </head>
 <body class="login-page">
     <div class="login-container">
@@ -106,7 +107,8 @@
                 const response = await fetch('/login', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
                     },
                     body: JSON.stringify({ username, password })
                 });
@@ -191,7 +193,7 @@
 
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20260203-07';
+            const APP_VERSION = '20261012-01';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);

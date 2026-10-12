@@ -310,6 +310,7 @@
 <script>
     // DOM Elements
     const reportForm = document.getElementById('reportForm');
+    const pendingClientId = crypto.randomUUID();
     const reportTypeInputs = document.querySelectorAll('input[name="report_type"]');
     const addressLabel = document.getElementById('addressLabel');
     const photosLabel = document.getElementById('photosLabel');
@@ -997,28 +998,11 @@
         submitBtn.querySelector('.btn-loading').style.display = 'flex';
         submitBtn.disabled = true;
 
-        // Check if online
-        if (!navigator.onLine) {
-            // Save offline
-            saveOfflineReport({
-                report_type: reportType,
-                address: address,
-                customer_name: customerName,
-                company_project: companyProjectInput ? companyProjectInput.value.trim() : '',
-                report_datetime: reportDateTime,
-                status: status,
-                notes: notes,
-                installation_types: installationTypes,
-                products: selectedProducts,
-                timestamp: new Date().toISOString()
-            });
-            showToast('הדוח נשמר מקומית ויסונכרן כשתהיה תקשורת', 'info');
-            setTimeout(() => window.location.href = '/dashboard', 2000);
-            return;
-        }
-
         // Create FormData
+        const clientId = pendingClientId;
+        const currentUserId = document.querySelector('meta[name="current-user-id"]').content;
         const formData = new FormData();
+        formData.append('client_id', clientId);
         formData.append('report_type', reportType);
         formData.append('address', address);
         formData.append('status', status);
@@ -1047,6 +1031,17 @@
         }
 
         try {
+            if (!navigator.onLine) {
+                if (editMode) {
+                    showToast('עריכת דוח דורשת חיבור לאינטרנט', 'error');
+                    return;
+                }
+                await OfflineQueue.save(formData, currentUserId, clientId);
+                showToast('הדוח והקבצים נשמרו במכשיר לסנכרון', 'info');
+                setTimeout(() => window.location.href = '/dashboard', 1500);
+                return;
+            }
+
             const endpoint = editMode && editReportId ? `/api/reports/${editReportId}` : '/api/reports';
             const method = editMode && editReportId ? 'PUT' : 'POST';
             const response = await fetch(endpoint, {
@@ -1066,32 +1061,22 @@
             }
         } catch (error) {
             console.error('Error:', error);
-            // Save offline on network error
-            saveOfflineReport({
-                report_type: reportType,
-                address: address,
-                customer_name: customerName,
-                company_project: companyProjectInput ? companyProjectInput.value.trim() : '',
-                report_datetime: reportDateTime,
-                status: status,
-                notes: notes,
-                installation_types: installationTypes,
-                products: selectedProducts,
-                timestamp: new Date().toISOString()
-            });
-            showToast('שגיאת תקשורת - הדוח נשמר מקומית', 'warning');
+            if (editMode) {
+                showToast('העדכון לא אושר על ידי השרת. יש לנסות שוב.', 'error');
+            } else {
+                try {
+                    await OfflineQueue.save(formData, currentUserId, clientId);
+                    showToast('שגיאת תקשורת - הדוח והקבצים נשמרו במכשיר', 'warning');
+                } catch (storageError) {
+                    showToast('לא ניתן לשמור במכשיר. השאר את הטופס פתוח ונסה שוב.', 'error');
+                }
+            }
         } finally {
             submitBtn.querySelector('.btn-text').style.display = 'block';
             submitBtn.querySelector('.btn-loading').style.display = 'none';
             submitBtn.disabled = false;
         }
     });
-
-    function saveOfflineReport(report) {
-        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
-        offlineReports.push(report);
-        localStorage.setItem('offlineReports', JSON.stringify(offlineReports));
-    }
 
     // ============ Custom Installation Types ============
     const customInstallationToggle = document.getElementById('customInstallationToggle');

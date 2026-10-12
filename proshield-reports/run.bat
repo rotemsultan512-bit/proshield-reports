@@ -37,7 +37,7 @@ REM Run the application
 echo.
 echo [*] Starting Proshield Reports...
 echo [*] Open your browser at: http://localhost:5000
-echo [*] Default login: rotem / proshield2025
+echo [*] For a new database, run: python bootstrap_admin.py
 echo.
 python run.py
 

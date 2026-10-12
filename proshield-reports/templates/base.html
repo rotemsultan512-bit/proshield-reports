@@ -7,18 +7,20 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Proshield Reports">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    {% if current_user.is_authenticated %}<meta name="current-user-id" content="{{ current_user.id }}">{% endif %}
 
     <title>{% block title %}Proshield Reports{% endblock %}</title>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json?v=20260204-02">
+    <link rel="manifest" href="/manifest.json?v=20261012-01">
 
     <!-- Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/static/images/icon-192.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20260204-01">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261012-01">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -135,13 +137,28 @@
     </div>
 
     <!-- Scripts -->
+    <script>
+        // Include the per-session CSRF token in same-origin writes, including form uploads.
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (input, options = {}) => {
+            const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+            const method = (options.method || (typeof input === 'string' ? 'GET' : input.method)).toUpperCase();
+            if (url.origin === location.origin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+                const headers = new Headers(options.headers || (typeof input === 'string' ? undefined : input.headers));
+                headers.set('X-CSRFToken', document.querySelector('meta[name="csrf-token"]').content);
+                options = { ...options, headers };
+            }
+            return originalFetch(input, options);
+        };
+    </script>
+    <script src="/static/js/offline-queue.js?v=20261012-01"></script>
     <script src="/static/js/app.js?v=20260204-01"></script>
     {% block extra_js %}{% endblock %}
 
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20260204-02';
+            const APP_VERSION = '20261012-01';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);

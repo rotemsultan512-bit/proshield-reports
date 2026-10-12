@@ -3,28 +3,13 @@
  * PWA Offline Support & Caching
  */
 
-const CACHE_NAME = 'proshield-reports-v8';
-const STATIC_CACHE = 'proshield-static-v8';
-const DYNAMIC_CACHE = 'proshield-dynamic-v8';
-
-const ASSET_VERSION = '20260203-07';
+const STATIC_CACHE = 'proshield-static-v9';
 
 // Static assets to cache
 const STATIC_ASSETS = [
-    '/',
-    '/login',
-    '/dashboard',
-    '/report/new',
-    '/settings',
-
-    // Versioned assets (force update)
-    `/static/css/style.css?v=${ASSET_VERSION}`,
-    `/static/js/app.js?v=${ASSET_VERSION}`,
-    `/manifest.json?v=${ASSET_VERSION}`,
-
-    // Fallback non-versioned (some browsers request these)
     '/static/css/style.css',
     '/static/js/app.js',
+    '/static/js/offline-queue.js',
     '/manifest.json',
 
     '/static/images/icon-192.png',
@@ -52,7 +37,7 @@ self.addEventListener('activate', (event) => {
             .then((keys) => {
                 return Promise.all(
                     keys.filter((key) => {
-                        return key !== STATIC_CACHE && key !== DYNAMIC_CACHE;
+                        return key !== STATIC_CACHE;
                     }).map((key) => {
                         console.log('[SW] Removing old cache:', key);
                         return caches.delete(key);
@@ -75,31 +60,13 @@ self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
 
-    // Skip non-GET requests
-    if (request.method !== 'GET') {
+    // Authenticated pages, API responses, and attachments must never enter CacheStorage.
+    if (request.method !== 'GET' || url.origin !== self.location.origin) {
         return;
     }
-
-    // Skip API calls (let them go to network)
-    if (url.pathname.startsWith('/api/')) {
-        event.respondWith(networkFirst(request));
-        return;
+    if (url.pathname.startsWith('/static/') || url.pathname === '/manifest.json') {
+        event.respondWith(cacheFirst(request));
     }
-
-    // Skip file uploads
-    if (url.pathname.startsWith('/uploads/')) {
-        event.respondWith(networkFirst(request));
-        return;
-    }
-
-    // For HTML pages - network first, fallback to cache
-    if (request.headers.get('Accept')?.includes('text/html')) {
-        event.respondWith(networkFirst(request));
-        return;
-    }
-
-    // For static assets - cache first
-    event.respondWith(cacheFirst(request));
 });
 
 // Cache-first strategy
@@ -111,37 +78,13 @@ async function cacheFirst(request) {
 
     try {
         const response = await fetch(request);
-        if (response.ok) {
-            const cache = await caches.open(DYNAMIC_CACHE);
+        if (response.ok && response.type === 'basic') {
+            const cache = await caches.open(STATIC_CACHE);
             cache.put(request, response.clone());
         }
         return response;
     } catch (error) {
         console.log('[SW] Fetch failed:', error);
-        // Return offline fallback if available
-        return caches.match('/');
-    }
-}
-
-// Network-first strategy
-async function networkFirst(request) {
-    try {
-        const response = await fetch(request);
-        if (response.ok) {
-            const cache = await caches.open(DYNAMIC_CACHE);
-            cache.put(request, response.clone());
-        }
-        return response;
-    } catch (error) {
-        console.log('[SW] Network failed, trying cache:', error);
-        const cached = await caches.match(request);
-        if (cached) {
-            return cached;
-        }
-        // Return offline page for HTML requests
-        if (request.headers.get('Accept')?.includes('text/html')) {
-            return caches.match('/');
-        }
         throw error;
     }
 }

@@ -6,7 +6,7 @@
 <div class="dashboard-page">
     <!-- Page Header -->
     <div class="page-header">
-        <h1>הדוחות שלי</h1>
+        <h1>{% if current_user.is_admin() %}כל הדוחות{% else %}הדוחות שלי{% endif %}</h1>
         <a href="{{ url_for('new_report') }}" class="btn btn-primary btn-new-report">
             + דוח חדש
         </a>
@@ -168,7 +168,7 @@
 
     <!-- Offline Reports Indicator -->
     <div class="offline-reports-banner" id="offlineReportsBanner" style="display:none;">
-        <span>יש <span id="offlineCount">0</span> דוחות שממתינים לסנכרון</span>
+        <span>יש <span id="offlineCount">0</span> דוחות שממתינים לסנכרון <span id="legacyOfflineNotice"></span></span>
         <button class="btn btn-sm" id="syncNowBtn">סנכרן עכשיו</button>
     </div>
 </div>
@@ -256,7 +256,7 @@
     });
 
     // Sync button
-    document.getElementById('syncNowBtn').addEventListener('click', syncOfflineReports);
+    document.getElementById('syncNowBtn').addEventListener('click', () => syncOfflineReports(true));
 
     // Load stats
     async function loadStats() {
@@ -421,23 +421,36 @@
     }
 
     // Offline reports handling
-    function checkOfflineReports() {
-        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
+    function legacyOfflineReports() {
+        try {
+            const reports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
+            return Array.isArray(reports) ? reports : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    async function checkOfflineReports() {
+        const userId = document.querySelector('meta[name="current-user-id"]').content;
+        const queued = await OfflineQueue.list(userId);
+        const legacy = legacyOfflineReports();
         const banner = document.getElementById('offlineReportsBanner');
         const countSpan = document.getElementById('offlineCount');
 
-        if (offlineReports.length > 0) {
-            countSpan.textContent = offlineReports.length;
+        if (queued.length + legacy.length > 0) {
+            countSpan.textContent = queued.length + legacy.length;
+            document.getElementById('legacyOfflineNotice').textContent = legacy.length ? `(${legacy.length} בפורמט ישן ללא קבצים; יש לבדוק לפני סנכרון)` : '';
             banner.style.display = 'flex';
         } else {
             banner.style.display = 'none';
         }
     }
 
-    async function syncOfflineReports() {
-        const offlineReports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
-
-        if (offlineReports.length === 0) {
+    async function syncOfflineReports(includeLegacy = false) {
+        const userId = document.querySelector('meta[name="current-user-id"]').content;
+        const queued = await OfflineQueue.list(userId);
+        const legacy = legacyOfflineReports();
+        if (queued.length === 0 && legacy.length === 0) {
             showToast('אין דוחות לסנכרון', 'info');
             return;
         }
@@ -448,23 +461,45 @@
         }
 
         try {
-            const response = await fetch('/api/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reports: offlineReports })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                localStorage.removeItem('offlineReports');
-                showToast(`${data.synced_count} דוחות סונכרנו בהצלחה`, 'success');
-                checkOfflineReports();
+            const result = await OfflineQueue.sync(userId);
+            let synced = result.synced;
+            let failed = result.failed;
+            if (includeLegacy && legacy.length) {
+                const approved = confirm(`נמצאו ${legacy.length} דוחות ישנים במכשיר. הם נשמרו בעבר ללא תמונות, מסמכים, שם מקבל וצוות התקנה. ודא שהם שייכים לחשבון שלך. לסנכרן אותם כעת?`);
+                if (approved) {
+                    for (const report of legacy) {
+                        report.client_id ||= crypto.randomUUID();
+                    }
+                    localStorage.setItem('offlineReports', JSON.stringify(legacy));
+                    for (const report of legacy) {
+                        try {
+                            const response = await fetch('/api/sync', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ reports: [report] })
+                            });
+                            const data = await response.json();
+                            if (!response.ok || data.synced_count !== 1) {
+                                failed++;
+                                break;
+                            }
+                            const remaining = legacyOfflineReports().filter(item => item.client_id !== report.client_id);
+                            localStorage.setItem('offlineReports', JSON.stringify(remaining));
+                            synced++;
+                        } catch (_) {
+                            failed++;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (synced) {
+                showToast(`${synced} דוחות סונכרנו בהצלחה`, 'success');
                 loadReports();
                 loadStats();
-            } else {
-                showToast('שגיאה בסנכרון', 'error');
             }
+            if (failed) showToast(`${failed} דוחות עדיין ממתינים לבדיקה או לניסיון חוזר`, 'error');
+            await checkOfflineReports();
         } catch (error) {
             showToast('שגיאת תקשורת', 'error');
         }
