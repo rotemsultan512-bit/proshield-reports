@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}תעודת משלוח #{{ note.id }} - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="delivery-workspace delivery-detail">
+    <div class="page-header">
+        <div>
+            <a href="{{ url_for('delivery_notes_page') }}" class="back-link">◀ כל תעודות המשלוח</a>
+            <span class="page-eyebrow">תעודה #{{ note.id }}</span>
+            <h1>{{ note.customer_name }}</h1>
+            <p class="page-intro">{{ note.address }} · עובד: {{ note.employee.full_name }}</p>
+        </div>
+        <span class="delivery-state {{ 'signed' if note.signed_at else 'waiting' }}">{{ 'נחתמה' if note.signed_at else 'ממתינה לחתימה' }}</span>
+    </div>
+
+    <section class="delivery-panel">
+        <div class="delivery-section-heading">
+            <span class="delivery-step">01</span>
+            <div><h2>בדיקת תעודת המשלוח</h2><p>יש להציג למקבל הסחורה את התעודה ולוודא שהפרטים תואמים למסירה.</p></div>
+        </div>
+        <div class="delivery-preview">
+            {% if note.original_path.lower().endswith('.pdf') %}
+            <img src="{{ url_for('delivery_note_preview', note_id=note.id) }}" alt="תצוגה מקדימה של העמוד הראשון בתעודת משלוח #{{ note.id }}">
+            {% else %}
+            <img src="{{ url_for('delivery_note_file', note_id=note.id, kind='original') }}" alt="תעודת משלוח מקורית ל{{ note.customer_name }}">
+            {% endif %}
+        </div>
+        {% if note.original_path.lower().endswith('.pdf') %}<p class="delivery-preview-caption">מוצג העמוד הראשון בלבד. לפתיחת כל דפי התעודה לחצו על ״פתח תעודה מלאה״.</p>{% endif %}
+        <div class="delivery-document-actions">
+            <a class="btn btn-secondary" target="_blank" rel="noopener" href="{{ url_for('delivery_note_file', note_id=note.id, kind='original') }}">פתח תעודה מלאה</a>
+            <a class="btn btn-ghost" href="{{ url_for('delivery_note_file', note_id=note.id, kind='original', download=1) }}">הורד מקור</a>
+        </div>
+    </section>
+
+    {% if note.signed_at %}
+    <section class="delivery-panel delivery-complete" aria-labelledby="signedTitle">
+        <div class="delivery-section-heading"><span class="delivery-step">✓</span><div><h2 id="signedTitle">התעודה נחתמה</h2><p>חתימת {{ note.recipient_name }} נשמרה בתעודה החתומה.</p></div></div>
+        <div class="delivery-document-actions">
+            <a class="btn btn-primary" href="{{ url_for('delivery_note_file', note_id=note.id, kind='signed', download=1) }}">הורד תעודה חתומה PDF</a>
+            <a class="btn btn-secondary" target="_blank" rel="noopener" href="{{ url_for('delivery_note_file', note_id=note.id, kind='signed') }}">צפה בתעודה החתומה</a>
+            {% if note.report_id %}<a class="btn btn-ghost" href="{{ url_for('view_report', report_id=note.report_id) }}">פתח דוח אספקה #{{ note.report_id }}</a>
+            {% elif note.employee_id == current_user.id %}<a class="btn btn-secondary" href="{{ url_for('new_report', delivery_note_id=note.id) }}">המשך לדיווח אספקה ←</a>{% endif %}
+        </div>
+    </section>
+    {% elif note.employee_id == current_user.id and not current_user.is_admin() %}
+    <section class="delivery-panel" aria-labelledby="signTitle">
+        <div class="delivery-section-heading"><span class="delivery-step">02</span><div><h2 id="signTitle">חתימת מקבל הסחורה</h2><p>לאחר שמקבל הסחורה בדק את התעודה, בקשו ממנו לחתום במסגרת.</p></div></div>
+        <form id="deliverySignForm" class="delivery-sign-form">
+            <div class="form-group">
+                <label for="recipientName">שם מלא של מקבל הסחורה</label>
+                <input id="recipientName" name="recipient_name" maxlength="200" minlength="2" required autocomplete="name" placeholder="שם פרטי ושם משפחה">
+            </div>
+            <div class="delivery-signature-header"><label for="signatureCanvas">חתימה</label><button id="clearSignature" type="button" class="btn btn-ghost btn-sm">נקה חתימה</button></div>
+            <canvas id="signatureCanvas" width="960" height="320" aria-label="משטח חתימה למקבל הסחורה"></canvas>
+            <p class="delivery-signature-hint">אפשר לחתום באצבע, בעט מגע או בעכבר.</p>
+            <label class="delivery-confirm"><input id="signConsent" type="checkbox" required><span>מקבל הסחורה בדק את התעודה ומאשר את קבלת הסחורה המופיעה בה.</span></label>
+            <p id="signError" class="form-error" role="alert" hidden></p>
+            <button type="submit" class="btn btn-primary btn-lg" id="saveSignature">שמור חתימה והפק תעודה חתומה</button>
+        </form>
+    </section>
+    {% else %}
+    <section class="delivery-panel"><p>התעודה ממתינה לחתימת מקבל הסחורה אצל העובד {{ note.employee.full_name }}.</p></section>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not note.signed_at and note.employee_id == current_user.id and not current_user.is_admin() %}
+<script>
+(() => {
+    const canvas = document.getElementById('signatureCanvas');
+    const ctx = canvas.getContext('2d');
+    const form = document.getElementById('deliverySignForm');
+    const error = document.getElementById('signError');
+    const submit = document.getElementById('saveSignature');
+    let drawing = false;
+    let hasInk = false;
+    ctx.strokeStyle = '#183d5c';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const position = event => {
+        const rect = canvas.getBoundingClientRect();
+        return {x: (event.clientX - rect.left) * canvas.width / rect.width,
+                y: (event.clientY - rect.top) * canvas.height / rect.height};
+    };
+    canvas.addEventListener('pointerdown', event => {
+        drawing = true;
+        canvas.setPointerCapture(event.pointerId);
+        const point = position(event);
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y);
+        ctx.lineTo(point.x + .1, point.y + .1);
+        ctx.stroke();
+    });
+    canvas.addEventListener('pointermove', event => {
+        if (!drawing) return;
+        const point = position(event);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+        hasInk = true;
+    });
+    const endStroke = () => { drawing = false; };
+    canvas.addEventListener('pointerup', endStroke);
+    canvas.addEventListener('pointercancel', endStroke);
+    document.getElementById('clearSignature').addEventListener('click', () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasInk = false;
+    });
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        error.hidden = true;
+        if (!hasInk) {
+            error.textContent = 'יש לחתום במסגרת לפני השמירה';
+            error.hidden = false;
+            return;
+        }
+        submit.disabled = true;
+        submit.textContent = 'שומר חתימה...';
+        try {
+            const response = await fetch('{{ url_for('sign_delivery_note', note_id=note.id) }}', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({recipient_name: document.getElementById('recipientName').value.trim(),
+                                      acknowledged: document.getElementById('signConsent').checked,
+                                      signature: canvas.toDataURL('image/png')})
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'שמירת החתימה נכשלה');
+            window.location.href = data.redirect;
+        } catch (failure) {
+            error.textContent = failure.message;
+            error.hidden = false;
+            submit.disabled = false;
+            submit.textContent = 'שמור חתימה והפק תעודה חתומה';
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,6 +1,7 @@
 """Focused regression checks for account setup, CSRF, and attachment access."""
 
 import atexit
+import base64
 from datetime import datetime, timedelta
 from io import BytesIO
 import json
@@ -11,7 +12,8 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageDraw
+from pypdf import PdfReader, PdfWriter
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +28,7 @@ os.environ.pop('RENDER', None)
 os.environ.pop('RENDER_SERVICE_ID', None)
 
 from app import app  # noqa: E402
-from models import db, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportImage, User  # noqa: E402
+from models import db, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportImage, User  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -37,6 +39,16 @@ class SecurityTests(unittest.TestCase):
         image.save(buffer, format='PNG')
         buffer.seek(0)
         return buffer
+
+    @staticmethod
+    def signature_data(blank=False):
+        image = Image.new('RGBA', (960, 320), (0, 0, 0, 0))
+        if not blank:
+            ImageDraw.Draw(image).line([(100, 170), (190, 120), (280, 200), (410, 110),
+                                        (560, 180), (710, 125)], fill='#183d5c', width=8)
+        buffer = BytesIO()
+        image.save(buffer, format='PNG')
+        return 'data:image/png;base64,' + base64.b64encode(buffer.getvalue()).decode('ascii')
 
     @classmethod
     def setUpClass(cls):
@@ -263,6 +275,131 @@ class SecurityTests(unittest.TestCase):
         }, headers=change_headers)
         self.assertEqual(changed.status_code, 200)
         self.assertEqual(worker.get('/settings').status_code, 200)
+
+    def test_assigned_delivery_note_signature_and_report_attachment(self):
+        admin = self.client_as(self.admin_id)
+        admin_headers = {'X-CSRFToken': self.csrf_for(admin)}
+        created = admin.post('/delivery-notes', data={
+            'employee_id': str(self.owner_id), 'customer_name': 'Delivery Customer',
+            'address': 'Delivery Street 5', 'document': (self.image_bytes(), 'note.png'),
+        }, headers=admin_headers)
+        self.assertEqual(created.status_code, 302)
+        with app.app_context():
+            note_id = DeliveryNote.query.filter_by(customer_name='Delivery Customer').one().id
+        original_url = f'/delivery-notes/{note_id}/file/original'
+        signed_url = f'/delivery-notes/{note_id}/file/signed'
+
+        owner = self.client_as(self.owner_id)
+        owner_headers = {'X-CSRFToken': self.csrf_for(owner)}
+        other = self.client_as(self.other_id)
+        self.assertEqual(other.get(f'/delivery-notes/{note_id}').status_code, 404)
+        self.assertEqual(other.get(original_url).status_code, 404)
+        self.assertEqual(other.post(f'/api/delivery-notes/{note_id}/sign', json={
+            'recipient_name': 'Wrong signer', 'signature': self.signature_data(), 'acknowledged': True
+        }, headers={'X-CSRFToken': self.csrf_for(other)}).status_code, 403)
+        with owner.get(original_url) as original:
+            self.assertEqual(original.status_code, 200)
+        self.assertEqual(owner.get(signed_url).status_code, 404)
+        self.assertEqual(owner.post(f'/api/delivery-notes/{note_id}/sign', json={
+            'recipient_name': 'Recipient Name', 'signature': self.signature_data(blank=True), 'acknowledged': True
+        }, headers=owner_headers).status_code, 400)
+
+        signed = owner.post(f'/api/delivery-notes/{note_id}/sign', json={
+            'recipient_name': 'Recipient Name', 'signature': self.signature_data(), 'acknowledged': True
+        }, headers=owner_headers)
+        self.assertEqual(signed.status_code, 200, signed.json)
+        self.assertEqual(owner.post(f'/api/delivery-notes/{note_id}/sign', json={
+            'recipient_name': 'Recipient Name', 'signature': self.signature_data(), 'acknowledged': True
+        }, headers=owner_headers).status_code, 409)
+        self.assertEqual(admin.delete(f'/api/delivery-notes/{note_id}', headers=admin_headers).status_code, 409)
+        with owner.get(signed_url) as pdf:
+            self.assertEqual(pdf.status_code, 200)
+            self.assertEqual(len(PdfReader(BytesIO(pdf.data)).pages), 2)
+        self.assertEqual(other.get(signed_url).status_code, 404)
+
+        report_form = {
+            'client_id': 'signed-delivery-test', 'report_type': 'delivery',
+            'customer_name': 'Delivery Customer', 'address': 'Delivery Street 5',
+            'report_datetime': '2026-10-13T09:00', 'status': 'completed',
+            'products': json.dumps([{'name': 'Delivery test product', 'quantity': 2, 'unit': 'unit'}]),
+            'delivery_note_id': str(note_id),
+        }
+        self.assertEqual(owner.post('/api/reports', data={**report_form, 'address': 'Wrong address'},
+                                    headers=owner_headers).status_code, 400)
+        report = owner.post('/api/reports', data=report_form, headers=owner_headers)
+        self.assertEqual(report.status_code, 200, report.json)
+        report_id = report.json['report_id']
+        data = owner.get(f'/api/reports/{report_id}').json
+        self.assertEqual(data['recipient_name'], 'Recipient Name')
+        self.assertEqual(len(data['documents']), 1)
+        with app.app_context():
+            self.assertEqual(db.session.get(DeliveryNote, note_id).report_id, report_id)
+        copied_url = '/uploads/reports/' + data['documents'][0]['document_path'].replace('\\', '/')
+        with owner.get(copied_url) as copied:
+            self.assertEqual(copied.status_code, 200)
+        self.assertEqual(other.get(copied_url).status_code, 404)
+
+    def test_delivery_note_assignment_rejects_invalid_file_and_can_cancel_pending(self):
+        admin = self.client_as(self.admin_id)
+        headers = {'X-CSRFToken': self.csrf_for(admin)}
+        self.assertEqual(admin.post('/delivery-notes', data={
+            'employee_id': str(self.owner_id), 'customer_name': 'Bad note',
+            'address': 'Address', 'document': (BytesIO(b'not-a-pdf'), 'note.pdf')
+        }, headers=headers).status_code, 302)
+        with app.app_context():
+            self.assertIsNone(DeliveryNote.query.filter_by(customer_name='Bad note').first())
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=400, height=500)
+        document = BytesIO()
+        writer.write(document)
+        document.seek(0)
+        created = admin.post('/delivery-notes', data={
+            'employee_id': str(self.owner_id), 'customer_name': 'Pending note',
+            'address': 'Address', 'document': (document, 'note.pdf')
+        }, headers=headers)
+        self.assertEqual(created.status_code, 302)
+        with app.app_context():
+            note_id = DeliveryNote.query.filter_by(customer_name='Pending note').one().id
+        owner = self.client_as(self.owner_id)
+        with owner.get(f'/delivery-notes/{note_id}/preview') as preview:
+            self.assertEqual(preview.status_code, 200)
+            self.assertEqual(preview.mimetype, 'image/png')
+        self.assertEqual(self.client_as(self.other_id).get(f'/delivery-notes/{note_id}/preview').status_code, 404)
+        self.assertEqual(admin.delete(f'/api/delivery-notes/{note_id}', headers=headers).status_code, 200)
+        self.assertEqual(owner.get(f'/delivery-notes/{note_id}').status_code, 404)
+
+    def test_signed_delivery_note_can_be_added_to_an_existing_report_once(self):
+        owner = self.client_as(self.owner_id)
+        owner_headers = {'X-CSRFToken': self.csrf_for(owner)}
+        form = {
+            'client_id': 'edit-signed-delivery-test', 'report_type': 'delivery',
+            'customer_name': 'Edit Note Customer', 'address': 'Edit Note Address',
+            'report_datetime': '2026-10-13T10:00', 'status': 'completed',
+            'products': json.dumps([{'name': 'Edit note product', 'quantity': 1, 'unit': 'unit'}]),
+        }
+        report_id = owner.post('/api/reports', data=form, headers=owner_headers).json['report_id']
+        admin = self.client_as(self.admin_id)
+        created = admin.post('/delivery-notes', data={
+            'employee_id': str(self.owner_id), 'customer_name': 'Edit Note Customer',
+            'address': 'Edit Note Address', 'document': (self.image_bytes(), 'edit-note.png'),
+        }, headers={'X-CSRFToken': self.csrf_for(admin)})
+        self.assertEqual(created.status_code, 302)
+        with app.app_context():
+            note_id = DeliveryNote.query.filter_by(customer_name='Edit Note Customer').one().id
+        signed = owner.post(f'/api/delivery-notes/{note_id}/sign', json={
+            'recipient_name': 'Edit Recipient', 'signature': self.signature_data(),
+            'acknowledged': True,
+        }, headers=owner_headers)
+        self.assertEqual(signed.status_code, 200, signed.json)
+        for _ in range(2):
+            updated = owner.put(f'/api/reports/{report_id}', data={
+                **form, 'delivery_note_id': str(note_id)
+            }, headers=owner_headers)
+            self.assertEqual(updated.status_code, 200, updated.json)
+        data = owner.get(f'/api/reports/{report_id}').json
+        self.assertEqual(data['recipient_name'], 'Edit Recipient')
+        self.assertEqual(len(data['documents']), 1)
 
     def test_custom_inventory_item_is_visible(self):
         with app.app_context():

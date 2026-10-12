@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}תעודות משלוח - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="delivery-workspace">
+    <div class="page-header">
+        <div>
+            <span class="page-eyebrow">אספקה בשטח</span>
+            <h1>תעודות משלוח</h1>
+            <p class="page-intro">{% if current_user.is_admin() %}מעלים תעודה ומשייכים לעובד. החתימה והתעודה החתומה נשמרות כאן.{% else %}פותחים את התעודה שקיבלת, מציגים למקבל הסחורה ומחתימים אותו בטלפון.{% endif %}</p>
+        </div>
+    </div>
+
+    {% if current_user.is_admin() %}
+    <section class="delivery-panel" aria-labelledby="newDeliveryTitle">
+        <div class="delivery-section-heading">
+            <span class="delivery-step">01</span>
+            <div><h2 id="newDeliveryTitle">תעודה חדשה לעובד</h2><p>PDF או תמונה עד 10MB. התעודה תופיע מיד בחשבון של העובד.</p></div>
+        </div>
+        <form method="post" enctype="multipart/form-data" class="delivery-upload-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="deliveryEmployee">עובד בשטח</label>
+                <select id="deliveryEmployee" name="employee_id" required>
+                    <option value="">בחרו עובד</option>
+                    {% for employee in employees %}<option value="{{ employee.id }}">{{ employee.full_name }} ({{ employee.username }})</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="deliveryCustomer">שם לקוח</label>
+                <input id="deliveryCustomer" name="customer_name" maxlength="200" required placeholder="למי מספקים?">
+            </div>
+            <div class="form-group">
+                <label for="deliveryAddress">כתובת אספקה</label>
+                <input id="deliveryAddress" name="address" maxlength="500" required placeholder="רחוב, מספר ועיר">
+            </div>
+            <div class="form-group delivery-file-field">
+                <label for="deliveryDocument">תעודת משלוח מקורית</label>
+                <input id="deliveryDocument" name="document" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required>
+                <small>התעודה המקורית נשמרת ללא שינוי. החתימה תצורף אליה בדף נפרד.</small>
+            </div>
+            <button type="submit" class="btn btn-primary">העלה ושייך לעובד</button>
+        </form>
+    </section>
+    {% endif %}
+
+    <section class="delivery-panel" aria-labelledby="deliveryListTitle">
+        <div class="delivery-section-heading">
+            <span class="delivery-step">{% if current_user.is_admin() %}02{% else %}01{% endif %}</span>
+            <div><h2 id="deliveryListTitle">{% if current_user.is_admin() %}תעודות שנשלחו לעובדים{% else %}התעודות שלי{% endif %}</h2><p>תעודה ממתינה לחתימת מקבל הסחורה עד שהעובד חותם אותה בשטח.</p></div>
+        </div>
+        {% if notes %}
+        <div class="delivery-note-list">
+            {% for note in notes %}
+            <article class="delivery-note-row">
+                <div class="delivery-note-mark" aria-hidden="true">📄</div>
+                <div class="delivery-note-summary">
+                    <div class="delivery-note-title"><strong>{{ note.customer_name }}</strong><span class="delivery-state {{ 'signed' if note.signed_at else 'waiting' }}">{{ 'נחתמה' if note.signed_at else 'ממתינה לחתימה' }}</span></div>
+                    <p>{{ note.address }}{% if current_user.is_admin() %} · {{ note.employee.full_name }}{% endif %}</p>
+                    <small>תעודה #{{ note.id }} · {{ note.created_at.strftime('%d/%m/%Y %H:%M') }}</small>
+                </div>
+                <div class="delivery-note-row-actions">
+                    <a class="btn btn-secondary btn-sm" href="{{ url_for('delivery_note_detail', note_id=note.id) }}">{{ 'פתח וחתום' if not note.signed_at and not current_user.is_admin() else 'פתח תעודה' }}</a>
+                    {% if current_user.is_admin() and not note.signed_at %}<button type="button" class="btn btn-ghost btn-sm delivery-delete" data-id="{{ note.id }}">בטל שיוך</button>{% endif %}
+                    {% if note.report_id %}<a href="{{ url_for('view_report', report_id=note.report_id) }}" class="delivery-report-link">דוח #{{ note.report_id }}</a>{% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="delivery-empty"><span aria-hidden="true">📭</span><h3>אין תעודות כרגע</h3><p>{% if current_user.is_admin() %}העלאת תעודה למעלה תיצור משימה לעובד.{% else %}כשמנהל ישייך לך תעודה, היא תופיע כאן.{% endif %}</p></div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.delivery-delete').forEach(button => button.addEventListener('click', async () => {
+    if (!confirm('לבטל את שיוך התעודה? העובד לא יוכל לפתוח אותה לאחר מכן.')) return;
+    button.disabled = true;
+    try {
+        const response = await fetch(`/api/delivery-notes/${button.dataset.id}`, {method: 'DELETE'});
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'לא ניתן לבטל את התעודה');
+        window.location.reload();
+    } catch (error) {
+        showToast(error.message, 'error');
+        button.disabled = false;
+    }
+}));
+</script>
+{% endblock %}
