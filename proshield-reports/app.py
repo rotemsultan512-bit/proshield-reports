@@ -1,19 +1,22 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 from PIL import Image
 from datetime import datetime
 from io import BytesIO
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 import os
 import uuid
 import json
+import math
 
 from config import Config
 from models import db, User, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
 
 app = Flask(__name__)
 app.config.from_object(Config)
+csrf = CSRFProtect(app)
 
 # Initialize extensions
 db.init_app(app)
@@ -21,6 +24,16 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'יש להתחבר כדי לגשת לעמוד זה'
+
+
+@app.after_request
+def prevent_private_response_caching(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'same-origin'
+    if not request.path.startswith('/static/') and request.path not in ('/manifest.json', '/sw.js', '/healthz'):
+        response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 
 def _is_production_runtime() -> bool:
@@ -41,7 +54,7 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 def init_db():
-    """Initialize database and create default admin user.
+    """Initialize the schema and inventory catalog.
 
     In production (Render), the SQLite DB may be created in /tmp and start empty.
     Without this, the first login attempt can crash because tables don't exist.
@@ -81,6 +94,10 @@ def init_db():
 
                 if 'protections_count' not in report_columns:
                     db.session.execute(text('ALTER TABLE reports ADD COLUMN protections_count INTEGER'))
+
+                if 'client_id' not in report_columns:
+                    db.session.execute(text('ALTER TABLE reports ADD COLUMN client_id VARCHAR(64)'))
+                db.session.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_reports_client_id ON reports (client_id)'))
 
                 # Company/Project list table
                 db.session.execute(text('''
@@ -142,6 +159,8 @@ def init_db():
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_type VARCHAR(500)'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS installation_types TEXT'))
                 db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS protections_count INTEGER'))
+                db.session.execute(text('ALTER TABLE reports ADD COLUMN IF NOT EXISTS client_id VARCHAR(64)'))
+                db.session.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_reports_client_id ON reports (client_id)'))
                 db.session.execute(text('ALTER TABLE report_products ADD COLUMN IF NOT EXISTS quantity_unit VARCHAR(20)'))
 
                 db.session.execute(text('''
@@ -183,7 +202,7 @@ def init_db():
                 db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"Schema migration skipped/failed: {e}")
+            raise RuntimeError(f"Schema migration failed: {e}") from e
 
         # Ensure inventory items exist for all products
         existing_items = {i.product_name for i in InventoryItem.query.all()}
@@ -192,18 +211,7 @@ def init_db():
                 db.session.add(InventoryItem(product_name=product, quantity_unit=0, quantity_meter=0))
         db.session.commit()
 
-        # Create default admin if not exists
-        admin = User.query.filter_by(username='rotem').first()
-        if not admin:
-            admin = User(
-                username='rotem',
-                role='admin',
-                full_name='רותם'
-            )
-            admin.set_password('proshield2025')
-            db.session.add(admin)
-            db.session.commit()
-            print("Default admin user created: rotem / proshield2025")
+        # Accounts must be created explicitly; never install a known password.
 
 
 # Auto-init DB on production startup (Gunicorn imports app.py but does not run __main__).
@@ -217,6 +225,49 @@ def allowed_file(filename, file_type='image'):
     else:
         allowed = Config.ALLOWED_DOCUMENT_EXTENSIONS
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed
+
+
+def validate_upload(file, file_type, max_size):
+    if not allowed_file(file.filename, file_type):
+        raise ValueError('סוג קובץ לא חוקי')
+    file.seek(0, 2)
+    size = file.tell()
+    file.seek(0)
+    if size <= 0 or size > max_size:
+        raise ValueError('גודל קובץ לא תקין')
+    if file.filename.lower().endswith('.pdf'):
+        if file.read(5) != b'%PDF-':
+            raise ValueError('קובץ PDF לא תקין')
+    else:
+        try:
+            with Image.open(file.stream) as image:
+                image.verify()
+        except Exception as exc:
+            raise ValueError('קובץ תמונה לא תקין') from exc
+    file.seek(0)
+
+
+def parse_products(raw):
+    try:
+        products = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError('רשימת מוצרים לא תקינה') from exc
+    if not isinstance(products, list) or not products:
+        raise ValueError('יש לבחור לפחות מוצר אחד')
+    normalized = []
+    for product in products:
+        if not isinstance(product, dict):
+            raise ValueError('מוצר לא תקין')
+        name = str(product.get('name') or '').strip()
+        try:
+            quantity = float(product.get('quantity'))
+        except (TypeError, ValueError) as exc:
+            raise ValueError('כמות מוצר לא תקינה') from exc
+        unit = product.get('unit') or 'unit'
+        if not name or not math.isfinite(quantity) or quantity <= 0 or unit not in ('unit', 'meter'):
+            raise ValueError('פרטי מוצר לא תקינים')
+        normalized.append({'name': name, 'quantity': quantity, 'unit': unit})
+    return normalized
 
 def compress_image(image_data, max_size=Config.MAX_IMAGE_DIMENSION, quality=Config.JPEG_QUALITY):
     """Compress and resize image"""
@@ -259,13 +310,17 @@ def save_file(file, report_id, file_type='image'):
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = os.path.join(save_dir, filename)
 
-    if file_type == 'image':
-        # Compress and save image
-        compressed = compress_image(file.read())
-        with open(filepath, 'wb') as f:
-            f.write(compressed.read())
-    else:
-        file.save(filepath)
+    try:
+        if file_type == 'image':
+            compressed = compress_image(file.read())
+            with open(filepath, 'wb') as f:
+                f.write(compressed.read())
+        else:
+            file.save(filepath)
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
 
     # Return relative path for storage
     if file_type == 'image':
@@ -305,6 +360,17 @@ def apply_inventory_change(product_name, quantity, unit, change_type, report_id=
     db.session.add(tx)
 
 # ============ ROUTES ============
+
+@app.route('/healthz')
+def healthz():
+    """Health check used by the hosting service; no user data is exposed."""
+    try:
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'status': 'ok'})
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'unavailable'}), 503
+
 
 @app.route('/')
 def index():
@@ -491,7 +557,18 @@ def get_reports_stats():
 @login_required
 def create_report():
     """Create a new report"""
+    saved_paths = []
     try:
+        client_id = (request.form.get('client_id') or '').strip() or None
+        if client_id:
+            if len(client_id) > 64:
+                return jsonify({'success': False, 'error': 'מזהה דוח לא תקין'}), 400
+            existing = Report.query.filter_by(client_id=client_id).first()
+            if existing:
+                if existing.user_id != current_user.id:
+                    return jsonify({'success': False, 'error': 'מזהה דוח כבר בשימוש'}), 409
+                return jsonify({'success': True, 'report_id': existing.id, 'already_saved': True})
+
         # Get form data
         report_type = request.form.get('report_type')
         address = request.form.get('address')
@@ -571,18 +648,23 @@ def create_report():
             if installation_team == 'with_worker' and not additional_worker_name:
                 return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
 
-        # Parse products
         try:
-            products_data = json.loads(products_json)
-        except json.JSONDecodeError:
-            products_data = []
-
-        if not products_data:
-            return jsonify({'success': False, 'error': 'יש לבחור לפחות מוצר אחד'}), 400
+            products_data = parse_products(products_json)
+            delivery_note = request.files.get('delivery_note') if report_type == 'delivery' else None
+            if delivery_note and delivery_note.filename:
+                validate_upload(delivery_note, 'document', Config.MAX_DOCUMENT_SIZE)
+            images = [image for image in request.files.getlist('images') if image and image.filename]
+            if len(images) > 10:
+                raise ValueError('ניתן לצרף עד 10 תמונות')
+            for image in images:
+                validate_upload(image, 'image', Config.MAX_IMAGE_SIZE)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
 
         # Create report
         report = Report(
             user_id=current_user.id,
+            client_id=client_id,
             report_type=report_type,
             customer_name=customer_name,
             recipient_name=recipient_name if report_type == 'delivery' else None,
@@ -632,23 +714,10 @@ def create_report():
 
         # Handle delivery note upload (OPTIONAL for delivery reports)
         if report_type == 'delivery':
-            delivery_note = request.files.get('delivery_note')
             if delivery_note and delivery_note.filename:
-                if not allowed_file(delivery_note.filename, 'document'):
-                    db.session.rollback()
-                    return jsonify({'success': False, 'error': 'סוג קובץ לא חוקי. יש להעלות PDF או תמונה'}), 400
-
-                # Check file size (10MB max)
-                delivery_note.seek(0, 2)  # Seek to end
-                file_size = delivery_note.tell()
-                delivery_note.seek(0)  # Reset to beginning
-
-                if file_size > Config.MAX_DOCUMENT_SIZE:
-                    db.session.rollback()
-                    return jsonify({'success': False, 'error': 'קובץ תעודת המשלוח גדול מדי (מקסימום 10MB)'}), 400
-
                 doc_path = save_file(delivery_note, report.id, 'delivery_note')
                 if doc_path:
+                    saved_paths.append(doc_path)
                     report_doc = ReportDocument(
                         report_id=report.id,
                         document_path=doc_path,
@@ -657,21 +726,17 @@ def create_report():
                     db.session.add(report_doc)
 
         # Handle image uploads
-        images = request.files.getlist('images')
         for image in images:
-            if image and image.filename and allowed_file(image.filename, 'image'):
-                if image.content_length and image.content_length > Config.MAX_IMAGE_SIZE:
-                    continue  # Skip oversized files
-
-                image_path = save_file(image, report.id, 'image')
-                if image_path:
-                    image_type = 'goods' if report_type == 'delivery' else 'project'
-                    report_image = ReportImage(
-                        report_id=report.id,
-                        image_path=image_path,
-                        image_type=image_type
-                    )
-                    db.session.add(report_image)
+            image_path = save_file(image, report.id, 'image')
+            if image_path:
+                saved_paths.append(image_path)
+                image_type = 'goods' if report_type == 'delivery' else 'project'
+                report_image = ReportImage(
+                    report_id=report.id,
+                    image_path=image_path,
+                    image_type=image_type
+                )
+                db.session.add(report_image)
 
         db.session.commit()
 
@@ -683,6 +748,10 @@ def create_report():
 
     except Exception as e:
         db.session.rollback()
+        for path in saved_paths:
+            full_path = os.path.join(Config.UPLOAD_FOLDER, path)
+            if os.path.isfile(full_path):
+                os.remove(full_path)
         return jsonify({'success': False, 'error': f'שגיאה בשמירת הדוח: {str(e)}'}), 500
 
 
@@ -768,14 +837,10 @@ def update_report(report_id):
             if installation_team == 'with_worker' and not additional_worker_name:
                 return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
 
-        # Parse products
         try:
-            products_data = json.loads(products_json)
-        except json.JSONDecodeError:
-            products_data = []
-
-        if not products_data:
-            return jsonify({'success': False, 'error': 'יש לבחור לפחות מוצר אחד'}), 400
+            products_data = parse_products(products_json)
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
 
         # Revert inventory from old products
         for old_product in report.products:
@@ -894,8 +959,8 @@ def change_password():
     if not current_user.check_password(current_password):
         return jsonify({'success': False, 'error': 'הסיסמה הנוכחית שגויה'}), 400
 
-    if len(new_password) < 6:
-        return jsonify({'success': False, 'error': 'הסיסמה החדשה חייבת להכיל לפחות 6 תווים'}), 400
+    if not isinstance(new_password, str) or len(new_password) < 12:
+        return jsonify({'success': False, 'error': 'הסיסמה החדשה חייבת להכיל לפחות 12 תווים'}), 400
 
     current_user.set_password(new_password)
     db.session.commit()
@@ -935,6 +1000,9 @@ def create_user():
 
     if not all([username, password, full_name]):
         return jsonify({'success': False, 'error': 'יש למלא את כל השדות'}), 400
+
+    if len(password) < 12 or role not in ('user', 'admin'):
+        return jsonify({'success': False, 'error': 'סיסמה או תפקיד לא תקינים'}), 400
 
     if User.query.filter_by(username=username).first():
         return jsonify({'success': False, 'error': 'שם משתמש כבר קיים'}), 400
@@ -1064,7 +1132,13 @@ def get_inventory():
             existing_items[product] = item
     db.session.commit()
 
-    items = [existing_items[p].to_dict() for p in PRODUCTS if p in existing_items]
+    # Reports may create custom products. Keep them visible for reconciliation.
+    canonical = [existing_items[p] for p in PRODUCTS if p in existing_items]
+    custom = sorted(
+        (item for name, item in existing_items.items() if name not in PRODUCTS),
+        key=lambda item: item.product_name.casefold()
+    )
+    items = [item.to_dict() for item in canonical + custom]
     return jsonify({'items': items})
 
 
@@ -1541,17 +1615,51 @@ def export_my_reports():
 @app.route('/api/sync', methods=['POST'])
 @login_required
 def sync_offline_reports():
-    """Sync offline reports"""
-    data = request.get_json()
+    """Import legacy browser drafts one at a time, preserving stock and retry safety."""
+    data = request.get_json(silent=True) or {}
     offline_reports = data.get('reports', [])
+    if not isinstance(offline_reports, list) or len(offline_reports) > 20:
+        return jsonify({'success': False, 'error': 'רשימת דוחות לא תקינה'}), 400
 
     synced_count = 0
     errors = []
 
     for report_data in offline_reports:
         try:
-            # Create report from offline data
+            if not isinstance(report_data, dict):
+                raise ValueError('דוח לא תקין')
+            client_id = str(report_data.get('client_id') or '').strip()
+            if not client_id or len(client_id) > 64:
+                raise ValueError('מזהה דוח חסר')
+            existing = Report.query.filter_by(client_id=client_id).first()
+            if existing:
+                if existing.user_id != current_user.id:
+                    raise ValueError('מזהה דוח כבר בשימוש')
+                synced_count += 1
+                continue
+
             offline_type = report_data.get('report_type')
+            address = str(report_data.get('address') or '').strip()
+            customer_name = str(report_data.get('customer_name') or '').strip()
+            status = report_data.get('status')
+            if offline_type not in ('delivery', 'installation') or not address or not customer_name or not status:
+                raise ValueError('חסרים פרטי דוח נדרשים')
+
+            products = report_data.get('products')
+            if not isinstance(products, list) or not products:
+                raise ValueError('חסרים מוצרים בדוח')
+            validated_products = []
+            for product in products:
+                if not isinstance(product, dict) or not str(product.get('name') or '').strip():
+                    raise ValueError('מוצר לא תקין')
+                quantity = float(product.get('quantity') or 0)
+                if not math.isfinite(quantity) or quantity <= 0:
+                    raise ValueError('כמות מוצר לא תקינה')
+                unit = product.get('unit') or 'unit'
+                if unit not in ('unit', 'meter'):
+                    raise ValueError('יחידת מוצר לא תקינה')
+                validated_products.append((str(product['name']).strip(), quantity, unit))
+
             offline_protections_raw = report_data.get('protections_count')
             try:
                 offline_protections_count = int(offline_protections_raw) if offline_protections_raw is not None else None
@@ -1570,18 +1678,19 @@ def sync_offline_reports():
 
             installation_type_display = ', '.join([str(x) for x in offline_installation_types if x])
 
-            report_datetime_raw = report_data.get('report_datetime')
-            report_timestamp = None
-            if report_datetime_raw:
-                try:
-                    report_timestamp = datetime.fromisoformat(report_datetime_raw)
-                except ValueError:
-                    report_timestamp = None
+            report_datetime_raw = report_data.get('report_datetime') or report_data.get('timestamp')
+            if not report_datetime_raw:
+                raise ValueError('תאריך דוח חסר')
+            try:
+                report_timestamp = datetime.fromisoformat(report_datetime_raw)
+            except (TypeError, ValueError):
+                raise ValueError('תאריך דוח לא תקין')
 
             report = Report(
                 user_id=current_user.id,
+                client_id=client_id,
                 report_type=offline_type,
-                customer_name=report_data.get('customer_name'),
+                customer_name=customer_name,
                 company_project=report_data.get('company_project'),
                 installation_type=installation_type_display if offline_type == 'installation' else None,
                 installation_types=(
@@ -1590,38 +1699,34 @@ def sync_offline_reports():
                     else None
                 ),
                 protections_count=offline_protections_count if offline_type == 'installation' else None,
-                address=report_data.get('address'),
-                status=report_data.get('status'),
+                address=address,
+                status=status,
                 notes=report_data.get('notes', ''),
-                timestamp=report_timestamp or datetime.fromisoformat(report_data.get('timestamp')) if report_data.get('timestamp') else datetime.utcnow()
+                timestamp=report_timestamp
             )
             db.session.add(report)
             db.session.flush()
 
-            # Add products
-            for product in report_data.get('products', []):
-                if product.get('name') and product.get('quantity'):
-                    unit = product.get('unit') or 'unit'
-                    if unit not in ['unit', 'meter']:
-                        unit = 'unit'
-
-                    report_product = ReportProduct(
-                        report_id=report.id,
-                        product_name=product['name'],
-                        quantity=float(product['quantity']),
-                        quantity_unit=unit
-                    )
-                    db.session.add(report_product)
-
+            for name, quantity, unit in validated_products:
+                db.session.add(ReportProduct(
+                    report_id=report.id,
+                    product_name=name,
+                    quantity=quantity,
+                    quantity_unit=unit
+                ))
+                apply_inventory_change(name, -quantity, unit, 'report', report.id, current_user.id,
+                                       f'Legacy offline report #{report.id}')
+            db.session.commit()
             synced_count += 1
-
-        except Exception as e:
+        except (TypeError, ValueError) as e:
+            db.session.rollback()
             errors.append(str(e))
-
-    db.session.commit()
+        except Exception:
+            db.session.rollback()
+            errors.append('שגיאה בשמירת דוח ישן')
 
     return jsonify({
-        'success': True,
+        'success': not errors,
         'synced_count': synced_count,
         'errors': errors
     })
@@ -1629,8 +1734,28 @@ def sync_offline_reports():
 @app.route('/uploads/reports/<path:filename>')
 @login_required
 def uploaded_file(filename):
-    """Serve uploaded files"""
-    return send_from_directory(Config.UPLOAD_FOLDER, filename)
+    """Serve only attachments belonging to a report this user may view."""
+    normalized = filename.replace('\\', '/')
+    report_id_text = normalized.split('/', 1)[0]
+    if not report_id_text.isdecimal():
+        return jsonify({'error': 'קובץ לא נמצא'}), 404
+
+    report = Report.query.get_or_404(int(report_id_text))
+    if not current_user.is_admin() and report.user_id != current_user.id:
+        return jsonify({'error': 'קובץ לא נמצא'}), 404
+
+    attachment_paths = {
+        attachment.image_path.replace('\\', '/') for attachment in report.images
+    }
+    attachment_paths.update(
+        attachment.document_path.replace('\\', '/') for attachment in report.documents
+    )
+    if normalized not in attachment_paths:
+        return jsonify({'error': 'קובץ לא נמצא'}), 404
+
+    response = send_from_directory(Config.UPLOAD_FOLDER, normalized)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 # PWA routes
 @app.route('/manifest.json')

@@ -89,14 +89,13 @@ def generate_icons():
         print("[!] Open create_icons.html in a browser to generate icons manually")
 
 def initialize_database():
-    """Initialize the database and create default admin"""
+    """Initialize the database without creating a shared administrator."""
     print("[*] Initializing database...")
 
     # Import and initialize
     from app import app, init_db
     init_db()
     print("[OK] Database initialized")
-    print("[OK] Default admin: rotem / proshield2025")
 
 def main():
     print("=" * 50)
@@ -131,7 +130,7 @@ def main():
     print("  Windows: run.bat")
     print("  Linux/Mac: python run.py")
     print()
-    print("Default login: rotem / proshield2025")
+    print("For a new database, run: python bootstrap_admin.py")
 
 if __name__ == '__main__':
     main()

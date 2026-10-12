@@ -40,14 +40,14 @@ def main():
 
     print("\n[*] Starting server...")
     print("[*] Access the app at: http://localhost:5000")
-    print("[*] Default admin login: rotem / proshield2025")
+    print("[*] If this is a new database, run: python bootstrap_admin.py")
     print("\n[*] Press Ctrl+C to stop the server")
     print("-" * 50)
 
     # Run the app
     app.run(
-        debug=True,
-        host='0.0.0.0',
+        debug=os.environ.get('FLASK_DEBUG') == '1',
+        host=os.environ.get('HOST', '127.0.0.1'),
         port=5000,
         threaded=True
     )
