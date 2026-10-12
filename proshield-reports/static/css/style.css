@@ -2481,6 +2481,21 @@ a:hover {
     border: 1px solid var(--border-light);
 }
 
+.missing-evidence-notice {
+    padding: var(--space-3) var(--space-4);
+    margin: var(--space-3) 0;
+    border: 1px solid rgba(249, 160, 34, 0.55);
+    border-radius: var(--radius-lg);
+    background: rgba(249, 160, 34, 0.12);
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.missing-evidence-notice a {
+    color: var(--brand-secondary);
+    font-weight: 700;
+}
+
 @media (min-width: 768px) {
     .detail-card {
         padding: var(--space-6);
