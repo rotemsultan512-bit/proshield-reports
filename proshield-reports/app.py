@@ -440,7 +440,18 @@ def view_report(report_id):
         flash('אין לך הרשאה לצפות בדוח זה', 'error')
         return redirect(url_for('dashboard'))
 
-    return render_template('view_report.html', report=report)
+    images = list(report.images)
+    documents = list(report.documents)
+    available_images = [image for image in images if os.path.isfile(os.path.join(Config.UPLOAD_FOLDER, image.image_path))]
+    available_documents = [document for document in documents if os.path.isfile(os.path.join(Config.UPLOAD_FOLDER, document.document_path))]
+    return render_template(
+        'view_report.html',
+        report=report,
+        available_images=available_images,
+        missing_image_count=len(images) - len(available_images),
+        available_documents=available_documents,
+        missing_document_count=len(documents) - len(available_documents),
+    )
 
 @app.route('/report/<int:report_id>/edit')
 @login_required

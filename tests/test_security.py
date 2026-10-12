@@ -104,6 +104,18 @@ class SecurityTests(unittest.TestCase):
         unlisted = f'/uploads/reports/{self.report_id}/images/unlisted.jpg'
         self.assertEqual(self.client_as(self.owner_id).get(unlisted).status_code, 404)
 
+    def test_report_names_missing_evidence_without_broken_image(self):
+        relative = f'{self.report_id}/images/photo.jpg'
+        file_path = Path(os.environ['UPLOAD_FOLDER']) / relative
+        original = file_path.read_bytes()
+        try:
+            file_path.unlink()
+            page = self.client_as(self.owner_id).get(f'/report/{self.report_id}').get_data(as_text=True)
+            self.assertIn('תמונה מקורית אחת חסרה בשרת', page)
+            self.assertNotIn(f'<img src="/uploads/reports/{relative}"', page)
+        finally:
+            file_path.write_bytes(original)
+
     def test_only_admin_can_download_complete_upload_backup(self):
         self.assertEqual(self.client_as(self.owner_id).get('/api/admin/uploads-backup').status_code, 403)
         self.assertNotIn('הורד גיבוי קבצים', self.client_as(self.owner_id).get('/settings').get_data(as_text=True))

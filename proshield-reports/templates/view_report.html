@@ -127,11 +127,18 @@
         </div>
 
         <!-- Images Card -->
-        {% if report.images.count() > 0 %}
+        {% if available_images or missing_image_count %}
         <div class="detail-card">
             <h2>📷 {% if report.report_type == 'delivery' %}תמונות סחורה{% else %}תמונות הפרויקט{% endif %}</h2>
+            {% if missing_image_count %}
+            <p class="missing-evidence-notice" role="status">
+                {% if missing_image_count == 1 %}תמונה מקורית אחת חסרה בשרת.{% else %}{{ missing_image_count }} תמונות מקוריות חסרות בשרת.{% endif %} פרטי הדוח נשמרו.
+                {% if not report.is_archived %}<a href="{{ url_for('edit_report', report_id=report.id) }}">אפשר לצרף תמונות מחדש בעריכת הדוח</a>.{% endif %}
+            </p>
+            {% endif %}
+            {% if available_images %}
             <div class="images-gallery">
-                {% for image in report.images %}
+                {% for image in available_images %}
                 <div class="gallery-item">
                     <img src="/uploads/reports/{{ image.image_path }}"
                          alt="תמונה {{ loop.index }}"
@@ -139,15 +146,20 @@
                 </div>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
         {% endif %}
 
         <!-- Delivery Note Card (for delivery reports only) -->
-        {% if report.report_type == 'delivery' and report.documents.count() > 0 %}
+        {% if report.report_type == 'delivery' and (available_documents or missing_document_count) %}
         <div class="detail-card delivery-note-card">
             <h2>📄 תעודת משלוח חתומה</h2>
+            {% if missing_document_count %}
+            <p class="missing-evidence-notice" role="status">{% if missing_document_count == 1 %}מסמך מקורי אחד חסר בשרת.{% else %}{{ missing_document_count }} מסמכים מקוריים חסרים בשרת.{% endif %} פרטי הדוח נשמרו.</p>
+            {% endif %}
+            {% if available_documents %}
             <div class="delivery-note-display">
-                {% for doc in report.documents %}
+                {% for doc in available_documents %}
                 {% set is_image = doc.document_path.lower().endswith(('.jpg', '.jpeg', '.png')) %}
                 {% set is_pdf = doc.document_path.lower().endswith('.pdf') %}
                 <div class="delivery-note-item">
@@ -180,6 +192,7 @@
                 </div>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
         {% endif %}
     </div>
