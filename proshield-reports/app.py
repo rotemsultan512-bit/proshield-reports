@@ -28,6 +28,9 @@ login_manager.login_message = 'יש להתחבר כדי לגשת לעמוד זה
 
 @app.after_request
 def prevent_private_response_caching(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'same-origin'
     if not request.path.startswith('/static/') and request.path not in ('/manifest.json', '/sw.js', '/healthz'):
         response.headers['Cache-Control'] = 'private, no-store'
     return response
