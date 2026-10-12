@@ -8,6 +8,7 @@ import re
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from PIL import Image
 
@@ -102,6 +103,19 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(self.client_as(self.other_id).get(url).status_code, 404)
         unlisted = f'/uploads/reports/{self.report_id}/images/unlisted.jpg'
         self.assertEqual(self.client_as(self.owner_id).get(unlisted).status_code, 404)
+
+    def test_only_admin_can_download_complete_upload_backup(self):
+        self.assertEqual(self.client_as(self.owner_id).get('/api/admin/uploads-backup').status_code, 403)
+        self.assertNotIn('הורד גיבוי קבצים', self.client_as(self.owner_id).get('/settings').get_data(as_text=True))
+        self.assertIn('הורד גיבוי קבצים', self.client_as(self.admin_id).get('/settings').get_data(as_text=True))
+        with self.client_as(self.admin_id).get('/api/admin/uploads-backup') as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('attachment', response.headers['Content-Disposition'])
+            with zipfile.ZipFile(BytesIO(response.data)) as archive:
+                paths = archive.namelist()
+                self.assertIn(f'{self.report_id}/images/photo.jpg', paths)
+                self.assertIn('backup-info.json', paths)
+                self.assertGreaterEqual(json.loads(archive.read('backup-info.json'))['file_count'], 1)
 
     def test_login_requires_csrf_token(self):
         client = app.test_client()

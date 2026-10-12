@@ -1,10 +1,12 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, send_file
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 from PIL import Image
 from datetime import datetime
 from io import BytesIO
+import tempfile
+import zipfile
 from sqlalchemy import or_, text
 import os
 import uuid
@@ -459,6 +461,43 @@ def edit_report(report_id):
 @login_required
 def settings():
     return render_template('settings.html')
+
+
+@app.route('/api/admin/uploads-backup')
+@login_required
+def download_uploads_backup():
+    """Let managers export the persistent report evidence as a local ZIP."""
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+
+    archive = tempfile.TemporaryFile()
+    file_count = 0
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+        root = Config.UPLOAD_FOLDER
+        if os.path.isdir(root):
+            for directory, directories, filenames in os.walk(root, followlinks=False):
+                directories[:] = [name for name in directories if not os.path.islink(os.path.join(directory, name))]
+                for filename in filenames:
+                    path = os.path.join(directory, filename)
+                    if os.path.islink(path) or not os.path.isfile(path):
+                        continue
+                    bundle.write(path, arcname=os.path.relpath(path, root).replace(os.sep, '/'))
+                    file_count += 1
+        bundle.writestr('backup-info.json', json.dumps({
+            'created_at_utc': datetime.utcnow().isoformat() + 'Z',
+            'file_count': file_count,
+            'contents': 'report images and documents; database backup is separate',
+        }))
+    archive.seek(0)
+    response = send_file(
+        archive,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'proshield-uploads-{datetime.utcnow():%Y-%m-%d}.zip',
+        conditional=False,
+    )
+    response.call_on_close(archive.close)
+    return response
 
 @app.route('/admin')
 @login_required
