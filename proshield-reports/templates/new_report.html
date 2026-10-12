@@ -278,7 +278,7 @@
                 <label for="signedDeliveryNote">תעודה שנחתמה באפליקציה</label>
                 <select id="signedDeliveryNote" name="delivery_note_id">
                     <option value="">ללא תעודה מהאפליקציה</option>
-                    {% for note in signed_notes %}<option value="{{ note.id }}" data-customer="{{ note.customer_name }}" data-address="{{ note.address }}" data-recipient="{{ note.recipient_name }}" {% if selected_note_id == note.id or request.args.get('delivery_note_id') == note.id|string %}selected{% endif %}>#{{ note.id }} · {{ note.customer_name }} · {{ note.address }}</option>{% endfor %}
+                    {% for note in signed_notes %}<option value="{{ note.id }}" data-customer="{{ note.customer_name }}" data-company="{{ note.company_project or '' }}" data-address="{{ note.address }}" data-recipient="{{ note.recipient_name }}" {% if selected_note_id == note.id or request.args.get('delivery_note_id') == note.id|string %}selected{% endif %}>#{{ note.id }} · {{ note.customer_name }} · {{ note.address }}</option>{% endfor %}
                 </select>
                 <small>בחירה בתעודה תמלא את פרטי הלקוח והכתובת ותצרף את ה־PDF החתום לדוח.</small>
             </div>
@@ -419,6 +419,10 @@
             document.getElementById('address').value = selected.dataset.address || '';
             customerNameInput.value = selected.dataset.customer || '';
             recipientNameInput.value = selected.dataset.recipient || '';
+            if (companyProjectInput && selected.dataset.company) {
+                companyProjectInput.value = selected.dataset.company;
+                companyProjectToggle.textContent = selected.dataset.company;
+            }
         }
         document.getElementById('address').readOnly = hasSignedNote;
         customerNameInput.readOnly = hasSignedNote;

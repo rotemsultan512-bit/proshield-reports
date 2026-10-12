@@ -21,7 +21,7 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="/static/css/style.css?v=20261012-03">
-    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-04">
+    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-05">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -45,8 +45,8 @@
             <a href="{{ url_for('new_report') }}" class="nav-link nav-btn-primary {% if request.endpoint == 'new_report' %}active{% endif %}">
                 <span>+ דוח חדש</span>
             </a>
-            <a href="{{ url_for('delivery_notes_page') }}" class="nav-link {% if request.endpoint in ('delivery_notes_page', 'delivery_note_detail') %}active{% endif %}">
-                <span>תעודות משלוח</span>
+            <a href="{{ url_for('delivery_note_library' if current_user.is_admin() else 'delivery_notes_page') }}" class="nav-link {% if request.endpoint in ('delivery_notes_page', 'delivery_note_detail', 'delivery_note_library') %}active{% endif %}">
+                <span>{{ 'כל התעודות' if current_user.is_admin() else 'תעודות משלוח' }}</span>
             </a>
             {% if current_user.is_admin() %}
             <a href="{{ url_for('admin_dashboard') }}" class="nav-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}">
@@ -84,7 +84,7 @@
     <div class="mobile-nav" id="mobileNav" aria-label="ניווט לנייד" aria-hidden="true" inert>
         <a href="{{ url_for('new_report') }}" class="mobile-nav-link primary">+ דוח חדש</a>
         <a href="{{ url_for('dashboard') }}" class="mobile-nav-link">דוחות</a>
-        <a href="{{ url_for('delivery_notes_page') }}" class="mobile-nav-link">תעודות משלוח</a>
+        <a href="{{ url_for('delivery_note_library' if current_user.is_admin() else 'delivery_notes_page') }}" class="mobile-nav-link">{{ 'כל התעודות' if current_user.is_admin() else 'תעודות משלוח' }}</a>
         {% if current_user.is_admin() %}
         <a href="{{ url_for('admin_dashboard') }}" class="mobile-nav-link">ניהול</a>
         <a href="{{ url_for('inventory_page') }}" class="mobile-nav-link">מלאי מחסן</a>

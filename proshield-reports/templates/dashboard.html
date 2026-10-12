@@ -11,9 +11,10 @@
             <h1>{% if current_user.is_admin() %}כל הדוחות{% else %}הדוחות שלי{% endif %}</h1>
             <p class="page-intro">מוצאים דיווח, משלימים טיפול וחוזרים לשטח.</p>
         </div>
-        <a href="{{ url_for('new_report') }}" class="btn btn-primary btn-new-report">
-            + דיווח חדש
-        </a>
+        <div class="dashboard-header-actions">
+            {% if current_user.is_admin() %}<a href="{{ url_for('delivery_note_library') }}" class="btn btn-secondary">כל תעודות המשלוח</a>{% endif %}
+            <a href="{{ url_for('new_report') }}" class="btn btn-primary btn-new-report">+ דיווח חדש</a>
+        </div>
     </div>
 
     {% if pending_delivery_notes %}

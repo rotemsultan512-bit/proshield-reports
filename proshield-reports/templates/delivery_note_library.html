@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}כל תעודות המשלוח - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="note-library">
+    <header class="page-header library-header">
+        <div>
+            <span class="page-eyebrow">ארכיון אספקות</span>
+            <h1>כל תעודות המשלוח</h1>
+            <p class="page-intro">תעודות שהועלו לעובדים, צולמו בדוח או נחתמו בשטח — במקום אחד.</p>
+        </div>
+        <a class="btn btn-primary" href="{{ url_for('delivery_notes_page') }}">+ העלאה ושיוך לעובד</a>
+    </header>
+
+    <div class="library-overview" aria-label="סיכום תעודות">
+        <div><strong>{{ total_all }}</strong><span>תעודות במערכת</span></div>
+        <div><strong>{{ signed_count }}</strong><span>תעודות חתומות</span></div>
+        <div><strong>{{ total }}</strong><span>תוצאות בחיפוש</span></div>
+    </div>
+
+    <form method="get" class="library-filters" role="search" aria-label="חיפוש וסינון תעודות משלוח">
+        <div class="library-search">
+            <label for="librarySearch">חיפוש חופשי</label>
+            <input type="search" id="librarySearch" name="q" value="{{ filters.q }}" placeholder="חברה, קבלן, כתובת, שם קובץ או מספר דוח">
+        </div>
+        <div class="library-filter-grid">
+            <div><label for="libraryCompany">חברת בנייה / פרויקט</label><select id="libraryCompany" name="company"><option value="">כל החברות</option><option value="__unassigned__" {% if filters.company == '__unassigned__' %}selected{% endif %}>טרם שויך לחברה</option>{% for company in options.companies %}<option value="{{ company }}" {% if filters.company == company %}selected{% endif %}>{{ company }}</option>{% endfor %}</select></div>
+            <div><label for="libraryCustomer">קבלן / לקוח</label><select id="libraryCustomer" name="customer"><option value="">כל הלקוחות</option>{% for customer in options.customers %}<option value="{{ customer }}" {% if filters.customer == customer %}selected{% endif %}>{{ customer }}</option>{% endfor %}</select></div>
+            <div><label for="libraryStatus">סוג / מצב</label><select id="libraryStatus" name="status"><option value="">כל התעודות</option><option value="signed" {% if filters.status == 'signed' %}selected{% endif %}>נחתמו באפליקציה</option><option value="waiting" {% if filters.status == 'waiting' %}selected{% endif %}>ממתינות לחתימה</option><option value="report" {% if filters.status == 'report' %}selected{% endif %}>צולמו או צורפו לדוח</option></select></div>
+            <div><label for="libraryEmployee">עובד</label><select id="libraryEmployee" name="employee"><option value="">כל העובדים</option>{% for employee_id, employee_name in options.employees %}<option value="{{ employee_id }}" {% if filters.employee == employee_id|string %}selected{% endif %}>{{ employee_name }}</option>{% endfor %}</select></div>
+            <div><label for="libraryFrom">מתאריך</label><input id="libraryFrom" name="from" type="date" value="{{ filters['from'] }}"></div>
+            <div><label for="libraryTo">עד תאריך</label><input id="libraryTo" name="to" type="date" value="{{ filters.to }}"></div>
+        </div>
+        <div class="library-filter-actions"><button class="btn btn-primary" type="submit">הצג תוצאות</button><a class="btn btn-secondary" href="{{ url_for('delivery_note_library') }}">נקה סינון</a></div>
+    </form>
+
+    <div class="library-results-head"><h2>תעודות לפי חברה וקבלן</h2><span>{{ total }} {{ 'תוצאה' if total == 1 else 'תוצאות' }}{% if page_count > 1 %} · עמוד {{ page }} מתוך {{ page_count }}{% endif %}</span></div>
+    {% if groups %}
+        <div class="library-groups">
+        {% for group in groups %}
+            <section class="library-company" aria-labelledby="company{{ loop.index }}">
+                <div class="library-company-head"><span class="library-company-icon" aria-hidden="true">▦</span><div><span class="library-kicker">חברת בנייה / פרויקט</span><h3 id="company{{ loop.index }}">{{ group.company or 'טרם שויך לחברה' }}</h3></div><span class="library-count">{{ group.count }} {{ 'תעודה' if group.count == 1 else 'תעודות' }}</span></div>
+                {% for customer in group.customers %}
+                <div class="library-customer"><h4>{{ customer.name or 'לקוח לא צוין' }} <span>{{ customer.entries|length }}</span></h4>
+                    <div class="library-card-grid">
+                    {% for entry in customer.entries %}
+                    <article class="library-card">
+                        <div class="library-card-top"><span class="library-type {{ entry.status }}">{% if entry.status == 'signed' %}✓ נחתמה באפליקציה{% elif entry.status == 'waiting' %}ממתינה לחתימה{% elif entry.is_image %}צולמה / צורפה כתמונה{% else %}צורפה לדוח{% endif %}</span><time datetime="{{ entry.date.isoformat() if entry.date else '' }}">{{ entry.date.strftime('%d/%m/%Y') if entry.date else 'ללא תאריך' }}</time></div>
+                        <h5>{{ entry.filename }}</h5>
+                        <p class="library-address">{{ entry.address }}</p>
+                        <p class="library-meta">{{ entry.employee }}{% if entry.report_id %} · דוח #{{ entry.report_id }}{% else %} · תעודה #{{ entry.id }}{% endif %}</p>
+                        {% if not entry.original_url and not entry.signed_url %}<p class="library-missing">הקובץ המקורי חסר באחסון. פרטי התעודה נשמרו.</p>{% endif %}
+                        {% if entry.signed_missing %}<p class="library-missing">הקובץ החתום חסר באחסון.</p>{% endif %}
+                        <div class="library-card-actions">
+                            {% if entry.signed_url %}<a class="btn btn-primary btn-sm" href="{{ entry.signed_url }}" target="_blank" rel="noopener">פתח חתומה</a>{% endif %}
+                            {% if entry.original_url %}<a class="btn btn-secondary btn-sm" href="{{ entry.original_url }}" target="_blank" rel="noopener">{{ 'פתח תמונה' if entry.is_image else 'פתח מקור' }}</a>{% endif %}
+                            <a class="library-detail-link" href="{{ entry.detail_url }}">{{ 'לדוח' if entry.kind == 'report' else 'לפרטי התעודה' }} ←</a>
+                        </div>
+                        <details class="library-classify"><summary>שייך / שנה חברת בנייה</summary>
+                            <form method="post" action="{{ url_for('classify_delivery_note') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="{{ entry.kind }}"><input type="hidden" name="record_id" value="{{ entry.id }}">
+                                {% for key, value in filters.items() %}{% if value %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
+                                <label for="companyEntry{{ entry.kind }}{{ entry.id }}">חברת בנייה / פרויקט</label>
+                                <input id="companyEntry{{ entry.kind }}{{ entry.id }}" name="company_project" list="libraryProjectOptions" maxlength="200" value="{{ entry.company }}" placeholder="הקלידו או בחרו חברה">
+                                <button class="btn btn-secondary btn-sm" type="submit">שמור שיוך</button>
+                            </form>
+                        </details>
+                    </article>
+                    {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </section>
+        {% endfor %}
+        </div>
+        <datalist id="libraryProjectOptions">{% for project in options.projects %}<option value="{{ project }}">{% endfor %}</datalist>
+    {% else %}
+        <div class="delivery-empty"><span aria-hidden="true">📂</span><h3>לא נמצאו תעודות</h3><p>אפשר לשנות את החיפוש או לנקות את הסינון.</p></div>
+    {% endif %}
+    {% if page_count > 1 %}
+    <nav class="library-pagination" aria-label="עמודי תוצאות">
+        {% if page > 1 %}<a class="btn btn-secondary" href="{{ url_for('delivery_note_library', **dict(request.args, page=page - 1)) }}">הקודם</a>{% endif %}
+        <span>עמוד {{ page }} מתוך {{ page_count }}</span>
+        {% if page < page_count %}<a class="btn btn-secondary" href="{{ url_for('delivery_note_library', **dict(request.args, page=page + 1)) }}">הבא</a>{% endif %}
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}
