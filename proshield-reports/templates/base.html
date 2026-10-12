@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0E4D83">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -21,18 +21,19 @@
 
     <!-- Styles -->
     <link rel="stylesheet" href="/static/css/style.css?v=20261012-03">
+    <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-02">
 
     {% block extra_css %}{% endblock %}
 </head>
 <body>
     {% if current_user.is_authenticated %}
-    <!-- Premium Sticky Header -->
-    <nav class="navbar">
+    <a class="skip-link" href="#mainContent">דלג לתוכן</a>
+    <nav class="navbar" aria-label="ניווט ראשי">
         <!-- Right Side (RTL): Logo + Brand -->
         <div class="navbar-brand">
             <a href="{{ url_for('dashboard') }}">
-                <img src="/static/images/proshield-icon.png" alt="Proshield" class="logo-img">
-                <span class="brand-text"><span class="brand-reports">Reports</span></span>
+                <img src="/static/images/proshield-icon.png" alt="" class="logo-img">
+                <span class="brand-text">PROSHIELD <span class="brand-reports">דיווחי שטח</span></span>
             </a>
         </div>
 
@@ -57,11 +58,11 @@
         <!-- Left Side (RTL): User Menu -->
         <div class="navbar-user">
             <div class="user-dropdown">
-                <button class="user-btn">
+                <button class="user-btn" type="button" aria-label="תפריט משתמש" aria-controls="userDropdownMenu" aria-expanded="false">
                     <span class="user-avatar">{{ current_user.full_name[0] }}</span>
                     <span class="user-name">{{ current_user.full_name }}</span>
                 </button>
-                <div class="dropdown-menu">
+                <div class="dropdown-menu" id="userDropdownMenu">
                     <a href="{{ url_for('settings') }}">הגדרות</a>
                     <a href="{{ url_for('logout') }}">התנתק</a>
                 </div>
@@ -69,7 +70,7 @@
         </div>
 
         <!-- Mobile Menu Button -->
-        <button class="mobile-menu-btn" id="mobileMenuBtn">
+        <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" aria-label="פתח תפריט ניווט" aria-controls="mobileNav" aria-expanded="false">
             <span></span>
             <span></span>
             <span></span>
@@ -77,7 +78,7 @@
     </nav>
 
     <!-- Mobile Navigation Drawer -->
-    <div class="mobile-nav" id="mobileNav">
+    <div class="mobile-nav" id="mobileNav" aria-label="ניווט לנייד" aria-hidden="true" inert>
         <a href="{{ url_for('new_report') }}" class="mobile-nav-link primary">+ דוח חדש</a>
         <a href="{{ url_for('dashboard') }}" class="mobile-nav-link">דוחות</a>
         {% if current_user.is_admin() %}
@@ -89,9 +90,11 @@
     </div>
 
     <!-- Floating Action Button (Mobile Only) -->
-    <a href="{{ url_for('new_report') }}" class="fab" title="דוח חדש">
+    {% if request.endpoint not in ('new_report', 'edit_report') %}
+    <a href="{{ url_for('new_report') }}" class="fab" title="דוח חדש" aria-label="יצירת דוח חדש">
         +
     </a>
+    {% endif %}
     {% endif %}
 
     <!-- Flash Messages -->
@@ -109,7 +112,7 @@
     {% endwith %}
 
     <!-- Main Content -->
-    <main class="main-content">
+    <main class="main-content" id="mainContent">
         {% block content %}{% endblock %}
     </main>
 
@@ -158,7 +161,7 @@
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20261012-05';
+            const APP_VERSION = '20261013-02';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);
@@ -243,6 +246,10 @@
             mobileMenuBtn.addEventListener('click', () => {
                 mobileNav.classList.toggle('active');
                 mobileMenuBtn.classList.toggle('active');
+                const isOpen = mobileNav.classList.contains('active');
+                mobileMenuBtn.setAttribute('aria-expanded', String(isOpen));
+                mobileNav.setAttribute('aria-hidden', String(!isOpen));
+                mobileNav.inert = !isOpen;
             });
 
             // Close menu when clicking a link
@@ -250,6 +257,9 @@
                 link.addEventListener('click', () => {
                     mobileNav.classList.remove('active');
                     mobileMenuBtn.classList.remove('active');
+                    mobileMenuBtn.setAttribute('aria-expanded', 'false');
+                    mobileNav.setAttribute('aria-hidden', 'true');
+                    mobileNav.inert = true;
                 });
             });
 
@@ -258,6 +268,9 @@
                 if (!e.target.closest('.mobile-nav') && !e.target.closest('.mobile-menu-btn')) {
                     mobileNav.classList.remove('active');
                     mobileMenuBtn.classList.remove('active');
+                    mobileMenuBtn.setAttribute('aria-expanded', 'false');
+                    mobileNav.setAttribute('aria-hidden', 'true');
+                    mobileNav.inert = true;
                 }
             });
         }
@@ -284,10 +297,19 @@
         if (userBtn && dropdownMenu) {
             userBtn.addEventListener('click', () => {
                 dropdownMenu.classList.toggle('active');
+                userBtn.setAttribute('aria-expanded', String(dropdownMenu.classList.contains('active')));
             });
             document.addEventListener('click', (e) => {
                 if (!e.target.closest('.user-dropdown')) {
                     dropdownMenu.classList.remove('active');
+                    userBtn.setAttribute('aria-expanded', 'false');
+                }
+            });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && dropdownMenu.classList.contains('active')) {
+                    dropdownMenu.classList.remove('active');
+                    userBtn.setAttribute('aria-expanded', 'false');
+                    userBtn.focus();
                 }
             });
         }

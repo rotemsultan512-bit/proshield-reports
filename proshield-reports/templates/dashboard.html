@@ -60,18 +60,6 @@
             <div class="stat-value" id="thisMonthReports">-</div>
             <div class="stat-label">החודש</div>
         </div>
-        {% if current_user.is_admin() %}
-        <a href="{{ url_for('inventory_page') }}" class="stat-card inventory-card">
-            <div class="stat-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 7h18v10H3z"/>
-                    <path d="M7 7V5h10v2"/>
-                </svg>
-            </div>
-            <div class="stat-value">📦</div>
-            <div class="stat-label">מלאי מחסן</div>
-        </a>
-        {% endif %}
     </div>
 
     <div class="quick-filters" role="group" aria-label="סינון מהיר של דוחות">
@@ -141,7 +129,10 @@
                 <span class="section-kicker">דיווחים</span>
                 <h2 id="resultSummary" aria-live="polite">טוען דוחות...</h2>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" id="refreshReports" aria-label="רענן דוחות">↻ רענון</button>
+            <div class="reports-heading-actions">
+                {% if current_user.is_admin() %}<a href="{{ url_for('inventory_page') }}" class="inventory-shortcut">מלאי מחסן ←</a>{% endif %}
+                <button type="button" class="btn btn-ghost btn-sm" id="refreshReports" aria-label="רענן דוחות">↻ רענון</button>
+            </div>
         </div>
         <div class="reports-list" id="reportsList">
             <!-- Reports will be loaded here -->
