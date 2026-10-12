@@ -377,6 +377,7 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('חתומה', html)
         self.assertEqual(admin.get('/delivery-notes/library?company=No+Match').status_code, 200)
         self.assertNotIn('library-original.png', admin.get('/delivery-notes/library?company=No+Match').get_data(as_text=True))
+        self.assertNotIn('library-original.png', admin.get('/delivery-notes/library?company=__unassigned__').get_data(as_text=True))
 
         owner = self.client_as(self.owner_id)
         self.assertEqual(owner.get('/delivery-notes/library').status_code, 403)

@@ -673,7 +673,9 @@ def delivery_note_library():
     search = filters['q'].casefold()
     filtered = []
     for entry in entries:
-        if filters['company'] and entry['company'] != filters['company']:
+        if filters['company'] == '__unassigned__' and entry['company']:
+            continue
+        if filters['company'] and filters['company'] != '__unassigned__' and entry['company'] != filters['company']:
             continue
         if filters['customer'] and entry['customer'] != filters['customer']:
             continue
