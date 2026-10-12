@@ -32,6 +32,16 @@ class User(UserMixin, db.Model):
         return f'<User {self.username}>'
 
 
+class LoginAttempt(db.Model):
+    __tablename__ = 'login_attempts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_key = db.Column(db.String(64), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (db.Index('ix_login_attempts_key_created', 'client_key', 'created_at'),)
+
+
 class Report(db.Model):
     __tablename__ = 'reports'
 

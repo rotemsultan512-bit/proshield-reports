@@ -3,8 +3,10 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 from PIL import Image
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
+import hashlib
+import ipaddress
 import tempfile
 import zipfile
 from sqlalchemy import or_, text
@@ -14,7 +16,7 @@ import json
 import math
 
 from config import Config
-from models import db, User, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
+from models import db, User, LoginAttempt, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -395,19 +397,63 @@ def login():
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
-        data = request.get_json() if request.is_json else request.form
-        username = data.get('username', '').strip()
+        data = request.get_json(silent=True) if request.is_json else request.form
+        if request.is_json and not isinstance(data, dict):
+            return jsonify({'success': False, 'error': 'פרטי ההתחברות אינם תקינים'}), 400
+        username = data.get('username', '')
         password = data.get('password', '')
+        if (not isinstance(username, str) or not isinstance(password, str)
+                or len(username) > 80 or len(password.encode('utf-8')) > 72):
+            error_msg = 'פרטי ההתחברות אינם תקינים'
+            if request.is_json:
+                return jsonify({'success': False, 'error': error_msg}), 400
+            flash(error_msg, 'error')
+            return render_template('login.html'), 400
+        username = username.strip()
+
+        # Keep failures in the database so the limit applies across web workers and restarts.
+        # Use the final proxy hop, not a caller-controlled prefix in X-Forwarded-For.
+        client_ip = request.remote_addr or 'unknown'
+        if os.environ.get('RENDER', '').lower() == 'true':
+            forwarded = request.headers.get('X-Forwarded-For', '').split(',')[-1].strip()
+            try:
+                client_ip = str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        client_key = hashlib.sha256(f'{client_ip}:{username.casefold()}'.encode('utf-8')).hexdigest()
+        now = datetime.utcnow()
+        cutoff = now - timedelta(minutes=15)
+        recent_attempts = (LoginAttempt.query
+                           .filter(LoginAttempt.client_key == client_key,
+                                   LoginAttempt.created_at >= cutoff)
+                           .order_by(LoginAttempt.created_at.asc())
+                           .all())
+        if len(recent_attempts) >= 12:
+            retry_after = max(1, int((recent_attempts[0].created_at + timedelta(minutes=15) - now).total_seconds()) + 1)
+            error_msg = f'יותר מדי ניסיונות התחברות. נסה שוב בעוד {math.ceil(retry_after / 60)} דקות.'
+            if request.is_json:
+                response = jsonify({'success': False, 'error': error_msg})
+            else:
+                flash(error_msg, 'error')
+                response = app.make_response(render_template('login.html'))
+            response.status_code = 429
+            response.headers['Retry-After'] = str(retry_after)
+            return response
 
         user = User.query.filter_by(username=username).first()
 
         if user and user.check_password(password) and user.is_active:
+            LoginAttempt.query.filter_by(client_key=client_key).delete()
+            db.session.commit()
             login_user(user, remember=True)
             if request.is_json:
                 return jsonify({'success': True, 'redirect': url_for('dashboard')})
             return redirect(url_for('dashboard'))
 
         error_msg = 'שם משתמש או סיסמה שגויים'
+        db.session.add(LoginAttempt(client_key=client_key, created_at=now))
+        LoginAttempt.query.filter(LoginAttempt.created_at < now - timedelta(days=1)).delete()
+        db.session.commit()
         if request.is_json:
             return jsonify({'success': False, 'error': error_msg}), 401
         flash(error_msg, 'error')
@@ -1085,15 +1131,20 @@ def restore_report(report_id):
 @login_required
 def change_password():
     """Change user password"""
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'פרטי הבקשה אינם תקינים'}), 400
     current_password = data.get('current_password')
     new_password = data.get('new_password')
 
-    if not current_user.check_password(current_password):
+    if (not isinstance(current_password, str) or len(current_password.encode('utf-8')) > 72
+            or not current_user.check_password(current_password)):
         return jsonify({'success': False, 'error': 'הסיסמה הנוכחית שגויה'}), 400
 
     if not isinstance(new_password, str) or len(new_password) < 12:
         return jsonify({'success': False, 'error': 'הסיסמה החדשה חייבת להכיל לפחות 12 תווים'}), 400
+    if len(new_password.encode('utf-8')) > 72:
+        return jsonify({'success': False, 'error': 'הסיסמה החדשה ארוכה מדי'}), 400
 
     current_user.set_password(new_password)
     db.session.commit()
@@ -1125,16 +1176,25 @@ def create_user():
     if not current_user.is_admin():
         return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
 
-    data = request.get_json()
-    username = data.get('username', '').strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'פרטי הבקשה אינם תקינים'}), 400
+    username = data.get('username', '')
     password = data.get('password', '')
-    full_name = data.get('full_name', '').strip()
+    full_name = data.get('full_name', '')
     role = data.get('role', 'user')
+
+    if (not isinstance(username, str) or not isinstance(full_name, str)
+            or not isinstance(password, str)):
+        return jsonify({'success': False, 'error': 'פרטי המשתמש אינם תקינים'}), 400
+    username = username.strip()
+    full_name = full_name.strip()
 
     if not all([username, password, full_name]):
         return jsonify({'success': False, 'error': 'יש למלא את כל השדות'}), 400
 
-    if len(password) < 12 or role not in ('user', 'admin'):
+    if (len(username) > 80 or len(full_name) > 100 or len(password) < 12
+            or len(password.encode('utf-8')) > 72 or role not in ('user', 'admin')):
         return jsonify({'success': False, 'error': 'סיסמה או תפקיד לא תקינים'}), 400
 
     if User.query.filter_by(username=username).first():
