@@ -19,6 +19,8 @@ jobs:
         run: pip install -r proshield-reports/requirements.txt
       - name: Run regression checks
         run: python -m unittest discover -s tests -v
+      - name: Check production database driver
+        run: python -c "from sqlalchemy.dialects.postgresql.psycopg import PGDialect_psycopg; PGDialect_psycopg.import_dbapi()"
       - name: Check browser scripts
         run: |
           node --check proshield-reports/static/js/offline-queue.js
