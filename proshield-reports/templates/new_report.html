@@ -46,7 +46,7 @@
         <div class="form-section" id="detailsSection">
             <h2>2. <span id="addressLabel">כתובת</span></h2>
             <div class="form-group">
-                <label for="address">כתובת העבודה <span class="required-badge">חובה</span></label>
+                <label for="address"><span id="addressFieldLabel">כתובת</span> <span class="required-badge">חובה</span></label>
                 <input type="text" id="address" name="address" placeholder="רחוב, מספר ועיר" autocomplete="street-address" required>
             </div>
 
@@ -56,8 +56,8 @@
             </div>
 
             <div class="form-group" id="recipientNameWrap" style="display:none;">
-                <label for="recipient_name">שם מקבל הסחורה <span class="optional-badge">אופציונלי</span></label>
-                <input type="text" id="recipient_name" name="recipient_name" placeholder="הזן שם מקבל הסחורה...">
+                <label for="recipient_name">שם מקבל הסחורה <span class="required-badge">חובה</span></label>
+                <input type="text" id="recipient_name" name="recipient_name" maxlength="200" placeholder="הזן שם מקבל הסחורה...">
             </div>
 
             <div class="form-group" id="companyProjectWrap" style="display:none;">
@@ -334,6 +334,7 @@
     const pendingClientId = crypto.randomUUID();
     const reportTypeInputs = document.querySelectorAll('input[name="report_type"]');
     const addressLabel = document.getElementById('addressLabel');
+    const addressFieldLabel = document.getElementById('addressFieldLabel');
     const photosLabel = document.getElementById('photosLabel');
     const documentSection = document.getElementById('documentSection');
     const notesStepLabel = document.getElementById('notesStepLabel');
@@ -667,6 +668,7 @@
 
             if (type === 'delivery') {
                 addressLabel.textContent = 'כתובת אספקה';
+                addressFieldLabel.textContent = 'כתובת אספקה';
                 photosLabel.textContent = 'תמונות סחורה שסופקה';
                 deliveryNoteSection.style.display = 'block';
                 notesStepLabel.textContent = '7. הערות (אופציונלי)';
@@ -680,8 +682,9 @@
                 reportDateInput.required = true;
                 setDefaultReportDateTime();
 
-                // Show recipient name (optional, delivery only)
+                // Every delivery report needs a recipient name, including offline drafts.
                 recipientNameWrap.style.display = 'block';
+                recipientNameInput.required = true;
 
                 // Hide installation details
                 installationDetails.style.display = 'none';
@@ -692,6 +695,7 @@
                     applySignedDeliveryNote();
                 }
                 addressLabel.textContent = 'כתובת התקנה';
+                addressFieldLabel.textContent = 'כתובת התקנה';
                 photosLabel.textContent = 'תמונות הפרויקט';
                 deliveryNoteSection.style.display = 'none';
                 notesStepLabel.textContent = '6. הערות (אופציונלי)';
@@ -707,6 +711,7 @@
 
                 // Hide recipient name (delivery only)
                 recipientNameWrap.style.display = 'none';
+                recipientNameInput.required = false;
                 if (recipientNameInput) recipientNameInput.value = '';
 
                 // Clear delivery note error when switching to installation
@@ -1015,13 +1020,20 @@
         }
 
         if (!address) {
-            showToast('יש להזין כתובת', 'error');
+            showToast(reportType === 'delivery' ? 'יש להזין כתובת אספקה' : 'יש להזין כתובת התקנה', 'error');
+            document.getElementById('address').focus();
             return;
         }
 
         if (!customerName) {
             showToast('יש להזין שם לקוח', 'error');
             customerNameInput.focus();
+            return;
+        }
+
+        if (reportType === 'delivery' && !recipientName) {
+            showToast('יש להזין שם מקבל הסחורה', 'error');
+            recipientNameInput.focus();
             return;
         }
 
