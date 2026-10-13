@@ -1183,6 +1183,9 @@ def create_report():
                 validate_upload(delivery_note, 'document', Config.MAX_DOCUMENT_SIZE)
             signed_note = _signed_note_for_report(request.form.get('delivery_note_id'),
                                                    report_type, customer_name, address)
+            effective_recipient_name = signed_note.recipient_name if signed_note else recipient_name
+            if report_type == 'delivery' and not effective_recipient_name:
+                raise ValueError('יש להזין שם מקבל הסחורה')
             if signed_note and delivery_note and delivery_note.filename:
                 raise ValueError('יש לבחור תעודה חתומה מהאפליקציה או להעלות קובץ, לא את שניהם')
             images = [image for image in request.files.getlist('images') if image and image.filename]
@@ -1199,7 +1202,7 @@ def create_report():
             client_id=client_id,
             report_type=report_type,
             customer_name=customer_name,
-            recipient_name=(signed_note.recipient_name if signed_note else recipient_name)
+            recipient_name=effective_recipient_name
                            if report_type == 'delivery' else None,
             company_project=company_project or None,
             installation_type=installation_type_display if report_type == 'installation' else None,
@@ -1406,6 +1409,9 @@ def update_report(report_id):
             else:
                 signed_note = _signed_note_for_report(selected_note_id, report_type,
                                                       customer_name, address, report.id)
+            effective_recipient_name = signed_note.recipient_name if signed_note else recipient_name
+            if report_type == 'delivery' and not effective_recipient_name:
+                raise ValueError('יש להזין שם מקבל הסחורה')
             if signed_note and delivery_note and delivery_note.filename:
                 raise ValueError('לדוח עם תעודה חתומה מהאפליקציה אין להעלות תעודה נוספת')
             images = [image for image in request.files.getlist('images') if image and image.filename]
@@ -1434,10 +1440,7 @@ def update_report(report_id):
         # Update report fields
         report.report_type = report_type
         report.customer_name = customer_name
-        report.recipient_name = (
-            (signed_note.recipient_name if signed_note else recipient_name)
-            if report_type == 'delivery' else None
-        )
+        report.recipient_name = effective_recipient_name if report_type == 'delivery' else None
         report.company_project = company_project or None
         report.address = address
         report.status = status

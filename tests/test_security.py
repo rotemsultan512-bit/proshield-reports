@@ -428,6 +428,7 @@ class SecurityTests(unittest.TestCase):
         form = {
             'client_id': 'edit-signed-delivery-test', 'report_type': 'delivery',
             'customer_name': 'Edit Note Customer', 'address': 'Edit Note Address',
+            'recipient_name': 'Initial Recipient',
             'report_datetime': '2026-10-13T10:00', 'status': 'completed',
             'products': json.dumps([{'name': 'Edit note product', 'quantity': 1, 'unit': 'unit'}]),
         }
@@ -470,6 +471,7 @@ class SecurityTests(unittest.TestCase):
             'client_id': 'offline-test-001',
             'report_type': 'delivery',
             'customer_name': 'Test Customer',
+            'recipient_name': 'Offline Recipient',
             'report_datetime': '2026-10-12T12:00',
             'address': 'Test address',
             'status': 'completed',
@@ -494,6 +496,7 @@ class SecurityTests(unittest.TestCase):
             'client_id': 'archive-test-001',
             'report_type': 'delivery',
             'customer_name': 'Archive Customer',
+            'recipient_name': 'Archive Recipient',
             'report_datetime': '2026-10-12T13:00',
             'address': 'Archive address',
             'status': 'completed',
@@ -543,6 +546,7 @@ class SecurityTests(unittest.TestCase):
             'client_id': 'edit-evidence-test',
             'report_type': 'delivery',
             'customer_name': 'Evidence Customer',
+            'recipient_name': 'Evidence Recipient',
             'report_datetime': '2026-10-12T14:00',
             'address': 'Evidence address',
             'status': 'completed',
@@ -607,6 +611,7 @@ class SecurityTests(unittest.TestCase):
         form = {
             'report_type': 'delivery',
             'customer_name': 'Validation Customer',
+            'recipient_name': 'Validation Recipient',
             'report_datetime': '2026-10-12T15:00',
             'address': 'Test address',
             'status': 'completed',
@@ -618,6 +623,36 @@ class SecurityTests(unittest.TestCase):
         with app.app_context():
             self.assertEqual(Report.query.filter_by(customer_name='Validation Customer').count(), 0)
             self.assertEqual(InventoryItem.query.filter_by(product_name='Validation test product').count(), 0)
+
+    def test_delivery_report_requires_recipient_on_create_and_edit(self):
+        client = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(client)}
+        form = {
+            'client_id': 'required-recipient-test', 'report_type': 'delivery',
+            'customer_name': 'Recipient Requirement Customer', 'address': 'Delivery Street 8',
+            'report_datetime': '2026-10-13T11:00', 'status': 'completed',
+            'products': json.dumps([{'name': 'Recipient test product', 'quantity': 1, 'unit': 'unit'}]),
+        }
+        for missing_name in (None, '   '):
+            invalid = dict(form)
+            if missing_name is not None:
+                invalid['recipient_name'] = missing_name
+            response = client.post('/api/reports', data=invalid, headers=headers)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn('שם מקבל הסחורה', response.json['error'])
+        with app.app_context():
+            self.assertIsNone(Report.query.filter_by(client_id='required-recipient-test').first())
+
+        valid = dict(form, recipient_name='Delivery Recipient')
+        created = client.post('/api/reports', data=valid, headers=headers)
+        self.assertEqual(created.status_code, 200, created.json)
+        report_id = created.json['report_id']
+        edited = client.put(f'/api/reports/{report_id}', data=dict(valid, recipient_name='   '),
+                            headers=headers)
+        self.assertEqual(edited.status_code, 400)
+        self.assertIn('שם מקבל הסחורה', edited.json['error'])
+        with app.app_context():
+            self.assertEqual(db.session.get(Report, report_id).recipient_name, 'Delivery Recipient')
 
     def test_legacy_offline_sync_preserves_stock_and_retry_safety(self):
         client = self.client_as(self.owner_id)
@@ -648,6 +683,7 @@ class SecurityTests(unittest.TestCase):
             'client_id': 'invalid-upload-test',
             'report_type': 'delivery',
             'customer_name': 'Test Customer',
+            'recipient_name': 'Upload Recipient',
             'report_datetime': '2026-10-12T12:00',
             'address': 'Test address',
             'status': 'completed',
