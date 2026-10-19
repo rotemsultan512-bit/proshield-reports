@@ -65,8 +65,10 @@
                 <input type="hidden" id="company_project" name="company_project">
                 <button type="button" class="dropdown-toggle" id="companyProjectToggle">בחר חברת בניה/פרויקט</button>
                 <div class="dropdown-content" id="companyProjectDropdown">
-                    <input type="text" id="companyProjectSearch" placeholder="חפש...">
+                    <input type="text" id="companyProjectSearch" maxlength="200" placeholder="חפש או הקלד שם חדש" aria-label="חיפוש או הוספת חברת בנייה או פרויקט">
                     <div class="company-project-list" id="companyProjectList"></div>
+                    <button type="button" class="company-project-add" id="companyProjectAdd" hidden></button>
+                    <p class="company-project-hint" id="companyProjectHint">לא מופיע ברשימה? הקלידו שם והוסיפו אותו.</p>
                 </div>
             </div>
 
@@ -384,6 +386,7 @@
     const companyProjectDropdown = document.getElementById('companyProjectDropdown');
     const companyProjectSearch = document.getElementById('companyProjectSearch');
     const companyProjectList = document.getElementById('companyProjectList');
+    const companyProjectAdd = document.getElementById('companyProjectAdd');
     const reportDateWrap = document.getElementById('reportDateWrap');
     const reportDateInput = document.getElementById('report_datetime');
 
@@ -464,14 +467,15 @@
         }
     });
 
-    companyProjectSearch?.addEventListener('input', (e) => {
-        const term = e.target.value.toLowerCase();
-        const items = companyProjectList?.querySelectorAll('.company-project-item') || [];
-        items.forEach(item => {
-            const name = item.textContent.toLowerCase();
-            item.style.display = name.includes(term) ? 'block' : 'none';
-        });
+    let companyProjects = [];
+    companyProjectSearch?.addEventListener('input', filterCompanyProjects);
+    companyProjectSearch?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !companyProjectAdd.hidden) {
+            event.preventDefault();
+            companyProjectAdd.click();
+        }
     });
+    companyProjectAdd?.addEventListener('click', addCompanyProject);
 
     function resetInstallationFields() {
         if (installationTypesWrap) {
@@ -513,27 +517,79 @@
         try {
             const response = await fetch('/api/company-projects');
             const data = await response.json();
-            const projects = data.projects || [];
-
-            renderCompanyProjects(projects);
+            if (!response.ok) throw new Error('Could not load companies');
+            companyProjects = data.projects || [];
+            renderCompanyProjects();
         } catch (error) {
             console.error('Error loading company/project list:', error);
         }
     }
 
-    function renderCompanyProjects(projects) {
-        companyProjectList.innerHTML = projects.map(p => `
-            <button type="button" class="company-project-item" data-value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>
-        `).join('');
+    function selectCompanyProject(name) {
+        companyProjectInput.value = name;
+        companyProjectToggle.textContent = name;
+        companyProjectSearch.value = '';
+        companyProjectDropdown.classList.remove('open');
+        renderCompanyProjects();
+    }
 
-        companyProjectList.querySelectorAll('.company-project-item').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const value = btn.dataset.value || '';
-                if (companyProjectInput) companyProjectInput.value = value;
-                if (companyProjectToggle) companyProjectToggle.textContent = value || 'בחר חברת בניה/פרויקט';
-                companyProjectDropdown?.classList.remove('open');
-            });
+    function filterCompanyProjects() {
+        const term = companyProjectSearch.value.trim();
+        const normalized = term.toLocaleLowerCase();
+        companyProjectList.querySelectorAll('.company-project-item').forEach(item => {
+            item.hidden = !item.textContent.toLocaleLowerCase().includes(normalized);
         });
+        companyProjectAdd.hidden = !term || companyProjects.some(project =>
+            project.name.toLocaleLowerCase() === normalized);
+        companyProjectAdd.textContent = `+ הוסף ובחר „${term}”`;
+    }
+
+    function renderCompanyProjects() {
+        companyProjectList.replaceChildren();
+        companyProjects.forEach(project => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'company-project-item';
+            button.textContent = project.name;
+            button.addEventListener('click', () => selectCompanyProject(project.name));
+            companyProjectList.append(button);
+        });
+        filterCompanyProjects();
+    }
+
+    async function addCompanyProject() {
+        const name = companyProjectSearch.value.trim().replace(/\s+/g, ' ');
+        if (!name || name.length > 200) {
+            showToast('יש להזין שם עד 200 תווים', 'error');
+            return;
+        }
+        companyProjectAdd.disabled = true;
+        try {
+            if (!navigator.onLine) throw new TypeError('Offline');
+            const response = await fetch('/api/company-projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                showToast(data.error || 'לא ניתן להוסיף את השם', 'error');
+                return;
+            }
+            if (!companyProjects.some(project => project.name === data.project.name)) {
+                companyProjects.push(data.project);
+                companyProjects.sort((a, b) => a.name.localeCompare(b.name, 'he'));
+            }
+            selectCompanyProject(data.project.name);
+            showToast('השם נוסף לרשימה', 'success');
+        } catch (error) {
+            // The report queue keeps this name; the server adds it when the report syncs.
+            companyProjects.push({ name });
+            selectCompanyProject(name);
+            showToast('השם יתווסף לרשימה כשהדוח יסתנכרן', 'info');
+        } finally {
+            companyProjectAdd.disabled = false;
+        }
     }
 
     async function loadReportForEdit() {

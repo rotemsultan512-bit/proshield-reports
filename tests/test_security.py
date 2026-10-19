@@ -28,7 +28,7 @@ os.environ.pop('RENDER', None)
 os.environ.pop('RENDER_SERVICE_ID', None)
 
 from app import app  # noqa: E402
-from models import db, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportDocument, ReportImage, User  # noqa: E402
+from models import db, CompanyProject, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportDocument, ReportImage, User  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -604,6 +604,34 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(image_response.status_code, 200)
         with app.app_context():
             self.assertEqual(InventoryItem.query.filter_by(product_name='Installation test product').one().quantity_meter, -3)
+
+    def test_worker_can_add_company_from_report_and_synced_report_registers_name(self):
+        worker = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(worker)}
+        first = worker.post('/api/company-projects', json={'name': '  חברת  בנייה  חדשה  '}, headers=headers)
+        self.assertEqual(first.status_code, 200, first.json)
+        self.assertEqual(first.json['project']['name'], 'חברת בנייה חדשה')
+        repeated = worker.post('/api/company-projects', json={'name': 'חברת בנייה חדשה'}, headers=headers)
+        self.assertEqual(repeated.json['project']['id'], first.json['project']['id'])
+        self.assertEqual(worker.post('/api/company-projects', json={'name': 'x' * 201}, headers=headers).status_code, 400)
+        self.assertEqual(worker.post('/api/company-projects', json={'name': '   '}, headers=headers).status_code, 400)
+        self.assertEqual(worker.delete(f"/api/company-projects/{first.json['project']['id']}", headers=headers).status_code, 403)
+
+        # An offline report sync sends the selected name with the report itself.
+        form = {
+            'client_id': 'new-company-offline-test', 'report_type': 'delivery',
+            'customer_name': 'New company customer', 'recipient_name': 'Site recipient',
+            'company_project': 'פרויקט חדש מהשטח', 'address': 'Construction Street 10',
+            'report_datetime': '2026-10-19T09:00', 'status': 'completed',
+            'products': json.dumps([{'name': 'New company test product', 'quantity': 1, 'unit': 'unit'}]),
+        }
+        created = worker.post('/api/reports', data=form, headers=headers)
+        self.assertEqual(created.status_code, 200, created.json)
+        self.assertEqual(worker.get(f"/api/reports/{created.json['report_id']}").json['company_project'],
+                         'פרויקט חדש מהשטח')
+        self.assertIn('פרויקט חדש מהשטח', [p['name'] for p in worker.get('/api/company-projects').json['projects']])
+        with app.app_context():
+            self.assertEqual(CompanyProject.query.filter_by(name='פרויקט חדש מהשטח').count(), 1)
 
     def test_report_rejects_invalid_type_and_status(self):
         client = self.client_as(self.owner_id)

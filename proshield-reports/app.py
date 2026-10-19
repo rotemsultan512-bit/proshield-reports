@@ -1284,6 +1284,8 @@ def create_report():
                 )
                 db.session.add(report_image)
 
+        if company_project:
+            ensure_company_project(company_project)
         db.session.commit()
 
         return jsonify({
@@ -1508,6 +1510,8 @@ def update_report(report_id):
                 image_type='goods' if report_type == 'delivery' else 'project'
             ))
 
+        if company_project:
+            ensure_company_project(company_project)
         db.session.commit()
         return jsonify({'success': True, 'report_id': report.id})
 
@@ -1810,26 +1814,29 @@ def get_company_projects():
     })
 
 
+def ensure_company_project(name):
+    """Keep company names from online and synced field reports in one shared list."""
+    existing = CompanyProject.query.filter(db.func.lower(CompanyProject.name) == name.lower()).first()
+    if existing:
+        existing.is_active = True
+        return existing
+    project = CompanyProject(name=name, is_active=True)
+    db.session.add(project)
+    return project
+
+
 @app.route('/api/company-projects', methods=['POST'])
 @login_required
 def create_company_project():
-    """Create company/project (admin only)"""
-    if not current_user.is_admin():
-        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
-
-    data = request.get_json() or {}
-    name = (data.get('name') or '').strip()
+    """Let field workers add a company/project while filling a report."""
+    data = request.get_json(silent=True) or {}
+    name = ' '.join((data.get('name') or '').split()) if isinstance(data.get('name'), str) else ''
     if not name:
         return jsonify({'success': False, 'error': 'יש להזין שם'}), 400
+    if len(name) > 200:
+        return jsonify({'success': False, 'error': 'שם החברה או הפרויקט ארוך מדי'}), 400
 
-    existing = CompanyProject.query.filter_by(name=name).first()
-    if existing:
-        existing.is_active = True
-        db.session.commit()
-        return jsonify({'success': True, 'project': existing.to_dict()})
-
-    project = CompanyProject(name=name, is_active=True)
-    db.session.add(project)
+    project = ensure_company_project(name)
     db.session.commit()
 
     return jsonify({'success': True, 'project': project.to_dict()})
