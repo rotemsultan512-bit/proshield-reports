@@ -2245,6 +2245,36 @@ a:hover {
     margin-top: var(--space-2);
 }
 
+.company-project-list .company-project-item {
+    display: block;
+    width: 100%;
+}
+
+.company-project-list .company-project-item[hidden],
+.company-project-add[hidden] {
+    display: none;
+}
+
+.company-project-add {
+    display: block;
+    width: 100%;
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--brand-primary);
+    border-radius: var(--radius-md);
+    background: #fff4e5;
+    color: var(--brand-primary-dark);
+    font-weight: 700;
+    text-align: right;
+    cursor: pointer;
+}
+
+.company-project-hint {
+    margin: var(--space-3) 0 0;
+    color: var(--gray-600);
+    font-size: 0.85rem;
+}
+
 .company-project-item {
     background: var(--gray-100);
     border: 1px solid var(--border-light);
