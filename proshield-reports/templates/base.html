@@ -20,7 +20,7 @@
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261019-01">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261103-01">
     <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-05">
 
     {% block extra_css %}{% endblock %}
@@ -159,23 +159,20 @@
         };
     </script>
     <script src="/static/js/offline-queue.js?v=20261012-02"></script>
+    <script src="/static/js/draft-store.js?v=20261103-01"></script>
     <script src="/static/js/app.js?v=20260204-01"></script>
     {% block extra_js %}{% endblock %}
 
     <script>
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20261019-01';
+            const APP_VERSION = '20261103-01';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);
 
-                // Clear service worker + caches so UI updates immediately
+                // Refresh cached assets while keeping the service worker's push subscription.
                 try {
-                    if ('serviceWorker' in navigator) {
-                        const regs = await navigator.serviceWorker.getRegistrations();
-                        await Promise.all(regs.map(r => r.unregister()));
-                    }
                     if ('caches' in window) {
                         const keys = await caches.keys();
                         await Promise.all(keys.map(k => caches.delete(k)));

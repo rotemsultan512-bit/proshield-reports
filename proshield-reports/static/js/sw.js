@@ -3,7 +3,7 @@
  * PWA Offline Support & Caching
  */
 
-const STATIC_CACHE = 'proshield-static-v16';
+const STATIC_CACHE = 'proshield-static-v17';
 
 // Static assets to cache
 const STATIC_ASSETS = [
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
     '/static/css/field-ui.css',
     '/static/js/app.js',
     '/static/js/offline-queue.js',
+    '/static/js/draft-store.js',
     '/manifest.json',
 
     '/static/images/icon-192.png',
@@ -109,10 +110,9 @@ async function syncOfflineReports() {
     });
 }
 
-// Push notifications (for future use)
 self.addEventListener('push', (event) => {
-    console.log('[SW] Push received');
-    const data = event.data?.json() || {};
+    let data = {};
+    try { data = event.data?.json() || {}; } catch (_) {}
     const title = data.title || 'Proshield Reports';
     const options = {
         body: data.body || 'יש לך התראה חדשה',
@@ -120,7 +120,8 @@ self.addEventListener('push', (event) => {
         badge: '/static/images/icon-192.png',
         dir: 'rtl',
         lang: 'he',
-        data: data.data
+        tag: data.tag,
+        data: { url: data.url || '/dashboard' }
     };
 
     event.waitUntil(
@@ -130,19 +131,18 @@ self.addEventListener('push', (event) => {
 
 // Notification click handler
 self.addEventListener('notificationclick', (event) => {
-    console.log('[SW] Notification clicked');
     event.notification.close();
-
+    const destination = new URL(event.notification.data?.url || '/dashboard', self.location.origin);
+    const path = destination.origin === self.location.origin ? destination.href : `${self.location.origin}/dashboard`;
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true })
             .then((clientList) => {
-                // Focus existing window or open new one
                 for (const client of clientList) {
-                    if ('focus' in client) {
-                        return client.focus();
+                    if ('focus' in client && new URL(client.url).origin === self.location.origin) {
+                        return client.navigate(path).then(() => client.focus());
                     }
                 }
-                return clients.openWindow('/dashboard');
+                return clients.openWindow(path);
             })
     );
 });

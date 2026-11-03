@@ -26,6 +26,12 @@
     </section>
     {% endif %}
 
+    <section class="drafts-panel" id="draftsPanel" aria-labelledby="draftsTitle" hidden>
+        <h2 id="draftsTitle">טיוטות להמשך מילוי</h2>
+        <p>הטיוטות נשמרות במכשיר הזה, כולל תמונות ומסמכים שצורפו.</p>
+        <div id="draftsList" class="drafts-list"></div>
+    </section>
+
     <!-- KPI Stats Cards -->
     <div class="stats-row" id="statsRow">
         <div class="stat-card gradient-blue">
@@ -223,6 +229,7 @@
         loadReports();
         loadStats();
         checkOfflineReports();
+        checkDrafts();
     });
 
     // Filter handlers
@@ -534,6 +541,51 @@
     }
 
     // Offline reports handling
+    async function checkDrafts() {
+        const userId = document.querySelector('meta[name="current-user-id"]').content;
+        const panel = document.getElementById('draftsPanel');
+        const list = document.getElementById('draftsList');
+        try {
+            const drafts = await DraftStore.list(userId);
+            panel.hidden = drafts.length === 0;
+            list.replaceChildren();
+            for (const draft of drafts) {
+                const row = document.createElement('div');
+                row.className = 'draft-row';
+                const details = document.createElement('div');
+                details.className = 'draft-details';
+                const title = document.createElement('strong');
+                const type = draft.fields.reportType === 'delivery' ? 'אספקה' :
+                    draft.fields.reportType === 'installation' ? 'התקנה' : 'דוח';
+                title.textContent = `${type} · ${draft.fields.customerName || draft.fields.address || 'ללא שם'}`;
+                const updated = document.createElement('small');
+                updated.textContent = `נשמר ב־${new Date(draft.updatedAt).toLocaleString('he-IL')}`;
+                details.append(title, updated);
+                const actions = document.createElement('div');
+                actions.className = 'draft-actions';
+                const resume = document.createElement('a');
+                resume.className = 'btn btn-primary btn-sm';
+                resume.href = `/report/new?draft=${encodeURIComponent(draft.id)}`;
+                resume.textContent = 'המשך מילוי';
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'btn btn-ghost btn-sm';
+                remove.textContent = 'מחק טיוטה';
+                remove.addEventListener('click', async () => {
+                    if (!confirm('למחוק את הטיוטה מהמכשיר הזה?')) return;
+                    await DraftStore.remove(draft.id);
+                    await checkDrafts();
+                });
+                actions.append(resume, remove);
+                row.append(details, actions);
+                list.append(row);
+            }
+        } catch (error) {
+            panel.hidden = false;
+            list.textContent = 'לא ניתן לקרוא טיוטות במכשיר הזה. נסו לרענן את הדף.';
+        }
+    }
+
     function legacyOfflineReports() {
         try {
             const reports = JSON.parse(localStorage.getItem('offlineReports') || '[]');
