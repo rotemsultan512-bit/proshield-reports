@@ -54,6 +54,13 @@
         <!-- App Info Card -->
         {% if current_user.is_admin() %}
         <div class="settings-card">
+            <h2>🔔 התראות על דוחות חדשים</h2>
+            <p>אפשר לקבל התראה במכשיר הזה בכל פעם שעובד שומר דוח חדש. להפעלה בטלפון, פתחו בו את האפליקציה והפעילו כאן את ההתראות.</p>
+            <p id="pushStatus" role="status">בודק זמינות התראות...</p>
+            <button type="button" class="btn btn-secondary btn-block" id="pushToggleBtn" hidden>הפעל התראות במכשיר הזה</button>
+            <small>באייפון יש לפתוח את האפליקציה שהוספה למסך הבית ולאשר התראות.</small>
+        </div>
+        <div class="settings-card">
             <h2>📁 גיבוי תמונות ומסמכים</h2>
             <p>הורדת כל הקבצים שצורפו לדוחות. גיבוי בסיס הנתונים מתבצע בנפרד ב־Render.</p>
             <a href="{{ url_for('download_uploads_backup') }}" class="btn btn-secondary btn-block">הורד גיבוי קבצים</a>
@@ -73,7 +80,7 @@
                     <span class="info-value" id="pwaStatus">בודק...</span>
                 </div>
                 <div class="info-row">
-                    <span class="info-label">דוחות מקומיים:</span>
+                    <span class="info-label">טיוטות ודוחות מקומיים:</span>
                     <span class="info-value" id="offlineCount">0</span>
                 </div>
             </div>
@@ -136,6 +143,100 @@
     });
 
     // PWA status check
+    {% if current_user.is_admin() %}
+    const pushToggleBtn = document.getElementById('pushToggleBtn');
+    const pushStatus = document.getElementById('pushStatus');
+    let pushPublicKey = '';
+    let pushSubscription = null;
+    let pushEnabledHere = false;
+
+    function pushKeyBytes(base64) {
+        const padded = (base64 + '='.repeat((4 - base64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+        return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
+    }
+
+    async function checkPushStatus() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+            pushStatus.textContent = 'המכשיר או הדפדפן אינם תומכים בהתראות מהאפליקציה.';
+            return;
+        }
+        try {
+            const response = await fetch('/api/push/config');
+            const config = await response.json();
+            if (!response.ok || !config.available) {
+                pushStatus.textContent = 'ההתראות עדיין אינן זמינות בשרת.';
+                return;
+            }
+            pushPublicKey = config.public_key;
+            const registration = await navigator.serviceWorker.ready;
+            pushSubscription = await registration.pushManager.getSubscription();
+            pushEnabledHere = false;
+            if (pushSubscription) {
+                const statusResponse = await fetch('/api/push/subscriptions/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ endpoint: pushSubscription.endpoint })
+                });
+                if (!statusResponse.ok) throw new Error('Push status unavailable');
+                pushEnabledHere = (await statusResponse.json()).active;
+            }
+            pushToggleBtn.hidden = false;
+            pushToggleBtn.textContent = pushEnabledHere ? 'הפסק התראות במכשיר הזה' : 'הפעל התראות במכשיר הזה';
+            pushStatus.textContent = pushEnabledHere ? 'התראות פעילות במכשיר הזה.' :
+                Notification.permission === 'denied' ? 'ההתראות חסומות בהגדרות המכשיר.' : 'התראות כבויות במכשיר הזה.';
+        } catch (error) {
+            pushStatus.textContent = 'לא ניתן לבדוק התראות כרגע. נסו שוב כשיש חיבור.';
+        }
+    }
+
+    pushToggleBtn.addEventListener('click', async () => {
+        pushToggleBtn.disabled = true;
+        try {
+            if (pushEnabledHere) {
+                const response = await fetch('/api/push/subscriptions', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ endpoint: pushSubscription.endpoint })
+                });
+                if (!response.ok) throw new Error('Unsubscribe failed');
+                await pushSubscription.unsubscribe();
+                pushSubscription = null;
+                pushEnabledHere = false;
+                showToast('ההתראות הופסקו במכשיר הזה', 'success');
+            } else {
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                    pushStatus.textContent = 'לא ניתן להפעיל התראות בלי אישור מהמכשיר.';
+                    return;
+                }
+                const registration = await navigator.serviceWorker.ready;
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: pushKeyBytes(pushPublicKey)
+                });
+                const response = await fetch('/api/push/subscriptions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: subscription.toJSON() })
+                });
+                if (!response.ok) {
+                    await subscription.unsubscribe();
+                    throw new Error('Subscription was not saved');
+                }
+                pushSubscription = subscription;
+                pushEnabledHere = true;
+                showToast('התראות על דוחות חדשים הופעלו', 'success');
+            }
+            await checkPushStatus();
+        } catch (error) {
+            showToast('לא ניתן לשנות התראות כרגע. נסו שוב.', 'error');
+        } finally {
+            pushToggleBtn.disabled = false;
+        }
+    });
+    checkPushStatus();
+    {% endif %}
+
     function checkPwaStatus() {
         const pwaStatus = document.getElementById('pwaStatus');
 
@@ -156,7 +257,8 @@
         let legacy = [];
         try { legacy = JSON.parse(localStorage.getItem('offlineReports') || '[]'); } catch (_) {}
         const queued = await OfflineQueue.list(userId);
-        document.getElementById('offlineCount').textContent = queued.length + (Array.isArray(legacy) ? legacy.length : 0);
+        const drafts = await DraftStore.list(userId);
+        document.getElementById('offlineCount').textContent = queued.length + drafts.length + (Array.isArray(legacy) ? legacy.length : 0);
     }
 
     // Install PWA
@@ -181,9 +283,10 @@
 
     // Clear local data
     document.getElementById('clearLocalBtn').addEventListener('click', async () => {
-        if (confirm('האם אתה בטוח? פעולה זו תמחק את כל הדוחות המקומיים שלא סונכרנו.')) {
+        if (confirm('למחוק מהמכשיר את כל הטיוטות והדוחות שעדיין לא סונכרנו?')) {
             const userId = document.querySelector('meta[name="current-user-id"]').content;
             await OfflineQueue.clearForUser(userId);
+            await DraftStore.clearForUser(userId);
             localStorage.removeItem('offlineReports');
             showToast('הנתונים המקומיים נמחקו', 'success');
             updateOfflineCount();

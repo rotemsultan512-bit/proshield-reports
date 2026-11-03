@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 from pathlib import Path
 from PIL import Image, ImageDraw
 from pypdf import PdfReader, PdfWriter
@@ -28,7 +29,7 @@ os.environ.pop('RENDER', None)
 os.environ.pop('RENDER_SERVICE_ID', None)
 
 from app import app  # noqa: E402
-from models import db, CompanyProject, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, Report, ReportDocument, ReportImage, User  # noqa: E402
+from models import db, CompanyProject, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, PushSubscription, Report, ReportDocument, ReportImage, User  # noqa: E402
 
 
 class SecurityTests(unittest.TestCase):
@@ -632,6 +633,58 @@ class SecurityTests(unittest.TestCase):
         self.assertIn('פרויקט חדש מהשטח', [p['name'] for p in worker.get('/api/company-projects').json['projects']])
         with app.app_context():
             self.assertEqual(CompanyProject.query.filter_by(name='פרויקט חדש מהשטח').count(), 1)
+
+    def test_only_managers_can_subscribe_and_new_worker_report_pushes_once(self):
+        admin = self.client_as(self.admin_id)
+        worker = self.client_as(self.owner_id)
+        admin_headers = {'X-CSRFToken': self.csrf_for(admin)}
+        worker_headers = {'X-CSRFToken': self.csrf_for(worker)}
+        endpoint = 'https://fcm.googleapis.com/fcm/send/test-push-token'
+        subscription = {'endpoint': endpoint, 'keys': {'p256dh': 'abc_123', 'auth': 'xyz-456'}}
+        with patch.dict(os.environ, {'VAPID_PUBLIC_KEY': 'test-public', 'VAPID_PRIVATE_KEY': 'test-private'}):
+            self.assertEqual(worker.get('/api/push/config').status_code, 403)
+            self.assertNotIn('pushToggleBtn', worker.get('/settings').get_data(as_text=True))
+            self.assertIn('pushToggleBtn', admin.get('/settings').get_data(as_text=True))
+            self.assertEqual(worker.post('/api/push/subscriptions', json={'subscription': subscription},
+                                         headers=worker_headers).status_code, 403)
+            self.assertEqual(admin.post('/api/push/subscriptions', json={
+                'subscription': dict(subscription, endpoint='https://localhost/internal')
+            }, headers=admin_headers).status_code, 400)
+            saved = admin.post('/api/push/subscriptions', json={'subscription': subscription},
+                               headers=admin_headers)
+            self.assertEqual(saved.status_code, 200, saved.json)
+            self.assertTrue(admin.post('/api/push/subscriptions/status', json={'endpoint': endpoint},
+                                       headers=admin_headers).json['active'])
+
+            form = {
+                'client_id': 'push-report-test', 'report_type': 'delivery',
+                'customer_name': 'Push Customer', 'recipient_name': 'Push Recipient',
+                'address': 'Push Street 7', 'report_datetime': '2026-11-03T10:00',
+                'status': 'completed', 'products': json.dumps([
+                    {'name': 'Push test product', 'quantity': 1, 'unit': 'unit'}
+                ]),
+            }
+            with patch('app.webpush') as mocked_push:
+                first = worker.post('/api/reports', data=form, headers=worker_headers)
+                self.assertEqual(first.status_code, 200, first.json)
+                second = worker.post('/api/reports', data=form, headers=worker_headers)
+                self.assertTrue(second.json['already_saved'])
+                mocked_push.assert_called_once()
+                payload = json.loads(mocked_push.call_args.kwargs['data'])
+                self.assertEqual(payload['url'], f"/report/{first.json['report_id']}")
+                self.assertEqual(mocked_push.call_args.kwargs['subscription_info']['endpoint'], endpoint)
+
+            with patch('app.webpush', side_effect=RuntimeError('push service unavailable')):
+                saved_without_push = worker.post('/api/reports', data=dict(form, client_id='push-failure-report-test'),
+                                                 headers=worker_headers)
+                self.assertEqual(saved_without_push.status_code, 200, saved_without_push.json)
+
+            self.assertEqual(worker.delete('/api/push/subscriptions', json={'endpoint': endpoint},
+                                           headers=worker_headers).status_code, 403)
+            self.assertEqual(admin.delete('/api/push/subscriptions', json={'endpoint': endpoint},
+                                          headers=admin_headers).status_code, 200)
+            with app.app_context():
+                self.assertEqual(PushSubscription.query.filter_by(endpoint=endpoint).count(), 0)
 
     def test_report_rejects_invalid_type_and_status(self):
         client = self.client_as(self.owner_id)

@@ -18,6 +18,13 @@
         <a href="#notesSection">סיום</a>
     </nav>
 
+    {% if not edit_mode %}
+    <div class="draft-status" id="draftStatus" role="status">
+        <span id="draftStatusText">הפרטים יישמרו אוטומטית כטיוטה במכשיר הזה.</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="saveDraftBtn">שמור טיוטה עכשיו</button>
+    </div>
+    {% endif %}
+
     <form id="reportForm" class="report-form" data-report-id="{{ report_id or '' }}" data-edit-mode="{{ 'true' if edit_mode else 'false' }}">
         <!-- Step 1: Report Type -->
         <div class="form-section" id="typeSection">
@@ -333,7 +340,8 @@
 <script>
     // DOM Elements
     const reportForm = document.getElementById('reportForm');
-    const pendingClientId = crypto.randomUUID();
+    const requestedDraftId = new URLSearchParams(location.search).get('draft');
+    const pendingClientId = requestedDraftId && /^[0-9a-f-]{36}$/i.test(requestedDraftId) ? requestedDraftId : crypto.randomUUID();
     const reportTypeInputs = document.querySelectorAll('input[name="report_type"]');
     const addressLabel = document.getElementById('addressLabel');
     const addressFieldLabel = document.getElementById('addressFieldLabel');
@@ -403,6 +411,192 @@
 
     const editMode = reportForm.dataset.editMode === 'true';
     const editReportId = reportForm.dataset.reportId;
+    const currentUserId = document.querySelector('meta[name="current-user-id"]').content;
+    const draftStatusText = document.getElementById('draftStatusText');
+    let draftTimer;
+    let draftDirty = false;
+    let draftRestoring = false;
+    let draftSaveChain = Promise.resolve();
+    let submittingReport = false;
+    let reportFinalized = false;
+    let draftRevision = 0;
+
+    function captureDraft() {
+        const fields = {
+            reportType: document.querySelector('input[name="report_type"]:checked')?.value || '',
+            address: document.getElementById('address').value,
+            customerName: customerNameInput.value,
+            recipientName: recipientNameInput.value,
+            companyProject: companyProjectInput.value,
+            reportDateTime: reportDateInput.value,
+            installationTypes: getSelectedInstallationTypes(),
+            installationTeam: document.querySelector('input[name="installation_team"]:checked')?.value || '',
+            additionalWorkerName: additionalWorkerNameInput.value,
+            products: Array.from(productItems).filter(item => item.querySelector('input[type="checkbox"]').checked)
+                .map(item => ({ name: item.querySelector('input[type="checkbox"]').value,
+                    quantity: item.querySelector('.quantity-input').value,
+                    unit: item.querySelector('.quantity-unit').value })),
+            customProducts: customProducts.map(product => ({ ...product })),
+            status: document.querySelector('input[name="status"]:checked')?.value || '',
+            notes: document.getElementById('notes').value,
+            signedDeliveryNoteId: signedDeliveryNote?.value || ''
+        };
+        return {
+            id: pendingClientId,
+            userId: String(currentUserId),
+            updatedAt: new Date().toISOString(),
+            fields,
+            photos: uploadedPhotos.map(photo => photo.file),
+            deliveryNote: uploadedDeliveryNote
+        };
+    }
+
+    function hasDraftContent(draft) {
+        const fields = draft.fields;
+        return Boolean(fields.reportType || fields.address.trim() || fields.customerName.trim() ||
+            fields.recipientName.trim() || fields.notes.trim() || fields.companyProject ||
+            fields.products.length || fields.customProducts.length || fields.installationTypes.length ||
+            draft.photos.length || draft.deliveryNote);
+    }
+
+    function saveDraftNow() {
+        if (editMode || submittingReport || reportFinalized || draftRestoring) return draftSaveChain;
+        clearTimeout(draftTimer);
+        const draft = captureDraft();
+        const savedRevision = draftRevision;
+        if (!hasDraftContent(draft)) return draftSaveChain;
+        draftDirty = true;
+        draftStatusText.textContent = 'שומר טיוטה...';
+        draftSaveChain = draftSaveChain.catch(() => {}).then(async () => {
+            await DraftStore.save(draft);
+            if (draftRevision === savedRevision) {
+                draftDirty = false;
+                draftStatusText.textContent = `הטיוטה נשמרה במכשיר הזה ב־${new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}`;
+            }
+        }).catch(error => {
+            draftDirty = true;
+            draftStatusText.textContent = 'שמירת הטיוטה נכשלה. השאירו את הדוח פתוח ונסו שוב.';
+            console.error('Draft save failed:', error);
+        });
+        return draftSaveChain;
+    }
+
+    function queueDraftSave() {
+        if (editMode || submittingReport || reportFinalized || draftRestoring) return;
+        draftRevision++;
+        draftDirty = true;
+        draftStatusText.textContent = 'יש שינויים שעדיין לא נשמרו...';
+        clearTimeout(draftTimer);
+        draftTimer = setTimeout(saveDraftNow, 700);
+    }
+
+    async function clearCompletedDraft(id) {
+        clearTimeout(draftTimer);
+        try {
+            await draftSaveChain;
+            await DraftStore.remove(id);
+        } catch (error) {
+            console.error('Completed draft cleanup failed:', error);
+        }
+    }
+
+    async function restoreDraft() {
+        if (editMode || !requestedDraftId) return;
+        try {
+            const draft = await DraftStore.get(pendingClientId, currentUserId);
+            if (!draft) {
+                showToast('הטיוטה אינה זמינה במכשיר הזה', 'warning');
+                return;
+            }
+            draftRestoring = true;
+            const f = draft.fields;
+            const typeInput = document.querySelector(`input[name="report_type"][value="${f.reportType}"]`);
+            if (typeInput) {
+                typeInput.checked = true;
+                typeInput.dispatchEvent(new Event('change'));
+            }
+            if (signedDeliveryNote && f.signedDeliveryNoteId) {
+                signedDeliveryNote.value = f.signedDeliveryNoteId;
+                applySignedDeliveryNote();
+            }
+            document.getElementById('address').value = f.address || '';
+            customerNameInput.value = f.customerName || '';
+            recipientNameInput.value = f.recipientName || '';
+            companyProjectInput.value = f.companyProject || '';
+            companyProjectToggle.textContent = f.companyProject || 'בחר חברת בניה/פרויקט';
+            reportDateInput.value = f.reportDateTime || '';
+            document.getElementById('notes').value = f.notes || '';
+            const statusInput = document.querySelector(`input[name="status"][value="${f.status}"]`);
+            if (statusInput) statusInput.checked = true;
+            for (const type of f.installationTypes || []) {
+                const checkbox = Array.from(document.querySelectorAll('input[name="installation_types"]'))
+                    .find(input => input.value === type);
+                if (checkbox) checkbox.checked = true;
+                else customInstallationTypes.push(type);
+            }
+            if (customInstallationTypes.length) {
+                document.getElementById('customInstallationToggle').checked = true;
+                document.getElementById('customInstallationFields').style.display = 'block';
+                renderCustomInstallationTypes();
+            }
+            const teamInput = document.querySelector(`input[name="installation_team"][value="${f.installationTeam}"]`);
+            if (teamInput) {
+                teamInput.checked = true;
+                teamInput.dispatchEvent(new Event('change'));
+            }
+            additionalWorkerNameInput.value = f.additionalWorkerName || '';
+            for (const product of f.products || []) {
+                const item = Array.from(productItems).find(element =>
+                    element.querySelector('input[type="checkbox"]').value === product.name);
+                if (!item) continue;
+                item.querySelector('input[type="checkbox"]').checked = true;
+                item.querySelector('.product-quantity').style.display = 'flex';
+                item.querySelector('.quantity-input').value = product.quantity || '';
+                item.querySelector('.quantity-unit').value = product.unit || 'meter';
+            }
+            customProducts = Array.isArray(f.customProducts) ? f.customProducts : [];
+            if (customProducts.length) {
+                document.getElementById('customProductFields').style.display = 'block';
+                renderCustomProducts();
+            }
+            updateSelectedProducts();
+            for (const file of draft.photos || []) handlePhotosUpload([file]);
+            if (draft.deliveryNote) handleDeliveryNoteUpload(draft.deliveryNote);
+            draftStatusText.textContent = 'הטיוטה שוחזרה ונשמרת אוטומטית במכשיר הזה.';
+            showToast('הטיוטה שוחזרה. אפשר להמשיך למלא את הדוח.', 'success');
+        } catch (error) {
+            draftStatusText.textContent = 'לא ניתן לשחזר את הטיוטה במכשיר הזה.';
+            console.error('Draft restore failed:', error);
+        } finally {
+            draftRestoring = false;
+        }
+    }
+
+    if (!editMode) {
+        reportForm.addEventListener('input', queueDraftSave);
+        reportForm.addEventListener('change', queueDraftSave);
+        document.getElementById('saveDraftBtn').addEventListener('click', async () => {
+            if (!hasDraftContent(captureDraft())) {
+                showToast('מלאו פרט אחד לפחות כדי לשמור טיוטה', 'info');
+                return;
+            }
+            await saveDraftNow();
+            if (!draftDirty) showToast('הטיוטה נשמרה במכשיר הזה', 'success');
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && draftDirty) saveDraftNow();
+        });
+        window.addEventListener('pagehide', () => {
+            if (draftDirty) saveDraftNow();
+        });
+        window.addEventListener('beforeunload', event => {
+            if (draftDirty && !reportFinalized) {
+                event.preventDefault();
+                event.returnValue = '';
+            }
+        });
+        restoreDraft();
+    }
 
     if (editMode) {
         const btnText = submitBtn.querySelector('.btn-text');
@@ -531,6 +725,7 @@
         companyProjectSearch.value = '';
         companyProjectDropdown.classList.remove('open');
         renderCompanyProjects();
+        queueDraftSave();
     }
 
     function filterCompanyProjects() {
@@ -858,6 +1053,7 @@
                 </div>
             `).join('');
         }
+        queueDraftSave();
     }
 
     // Photos upload
@@ -940,6 +1136,7 @@
                 renderPhotosPreview();
             });
         });
+        queueDraftSave();
     }
 
     // Delivery Note upload
@@ -1000,6 +1197,7 @@
 
         uploadedDeliveryNote = file;
         deliveryNoteError.style.display = 'none';
+        queueDraftSave();
 
         const isPDF = file.type === 'application/pdf' || fileName.endsWith('.pdf');
         const isImage = file.type.startsWith('image/') || ['.jpg', '.jpeg', '.png'].some(ext => fileName.endsWith(ext));
@@ -1041,6 +1239,7 @@
             uploadedDeliveryNote = null;
             deliveryNotePreview.innerHTML = '';
             deliveryNoteInput.value = '';
+            queueDraftSave();
         });
     }
 
@@ -1125,6 +1324,11 @@
             return;
         }
 
+        if (pendingPhotoReads > 0) {
+            showToast('ממתין לסיום קליטת התמונות. נסו לשמור בעוד רגע.', 'info');
+            return;
+        }
+
         if (!status) {
             showToast('יש לבחור סטטוס', 'error');
             return;
@@ -1136,10 +1340,11 @@
         submitBtn.querySelector('.btn-text').style.display = 'none';
         submitBtn.querySelector('.btn-loading').style.display = 'flex';
         submitBtn.disabled = true;
+        if (!editMode) await saveDraftNow();
+        submittingReport = true;
 
         // Create FormData
         const clientId = pendingClientId;
-        const currentUserId = document.querySelector('meta[name="current-user-id"]').content;
         const formData = new FormData();
         formData.append('client_id', clientId);
         formData.append('report_type', reportType);
@@ -1179,6 +1384,8 @@
                     return;
                 }
                 await OfflineQueue.save(formData, currentUserId, clientId);
+                reportFinalized = true;
+                await clearCompletedDraft(clientId);
                 showToast('הדוח והקבצים נשמרו במכשיר לסנכרון', 'info');
                 setTimeout(() => window.location.href = '/dashboard', 1500);
                 return;
@@ -1194,6 +1401,8 @@
             const data = await response.json();
 
             if (data.success) {
+                reportFinalized = true;
+                if (!editMode) await clearCompletedDraft(clientId);
                 showToast('הדוח נשמר בהצלחה!', 'success');
                 setTimeout(() => {
                     window.location.href = `/report/${data.report_id}`;
@@ -1208,12 +1417,16 @@
             } else {
                 try {
                     await OfflineQueue.save(formData, currentUserId, clientId);
+                    reportFinalized = true;
+                    await clearCompletedDraft(clientId);
                     showToast('שגיאת תקשורת - הדוח והקבצים נשמרו במכשיר', 'warning');
+                    setTimeout(() => window.location.href = '/dashboard', 1500);
                 } catch (storageError) {
                     showToast('לא ניתן לשמור במכשיר. השאר את הטופס פתוח ונסה שוב.', 'error');
                 }
             }
         } finally {
+            submittingReport = false;
             submitBtn.querySelector('.btn-text').style.display = 'block';
             submitBtn.querySelector('.btn-loading').style.display = 'none';
             submitBtn.disabled = false;
@@ -1275,6 +1488,7 @@
                 renderCustomInstallationTypes();
             });
         });
+        queueDraftSave();
     }
 
     // ============ Custom Products ============

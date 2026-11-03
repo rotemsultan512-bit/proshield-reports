@@ -21,9 +21,12 @@ import os
 import uuid
 import json
 import math
+import re
+from urllib.parse import urlparse
+from pywebpush import webpush, WebPushException
 
 from config import Config
-from models import db, User, LoginAttempt, PasswordResetToken, DeliveryNote, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
+from models import db, User, PushSubscription, LoginAttempt, PasswordResetToken, DeliveryNote, Report, ReportProduct, ReportImage, ReportDocument, CompanyProject, InventoryItem, InventoryTransaction, PRODUCTS
 from delivery_signing import create_signed_pdf, validate_delivery_source
 
 app = Flask(__name__)
@@ -931,6 +934,123 @@ def settings():
     return render_template('settings.html')
 
 
+def valid_push_endpoint(endpoint):
+    if not isinstance(endpoint, str) or len(endpoint) > 2048:
+        return False
+    try:
+        parsed = urlparse(endpoint)
+    except ValueError:
+        return False
+    host = (parsed.hostname or '').lower()
+    return (parsed.scheme == 'https' and not parsed.username and not parsed.password and
+            (host in ('fcm.googleapis.com', 'android.googleapis.com') or
+             host.endswith('.push.apple.com') or host == 'web.push.apple.com' or
+             host.endswith('.push.services.mozilla.com') or
+             host.endswith('.notify.windows.com')))
+
+
+def notify_admins_of_report(report):
+    private_key = os.environ.get('VAPID_PRIVATE_KEY')
+    if not private_key:
+        return
+    subscriptions = (PushSubscription.query.join(User)
+                     .filter(User.role == 'admin', User.is_active == True).all())  # noqa: E712
+    payload = json.dumps({
+        'title': 'דוח שטח חדש',
+        'body': 'עובד שמר דוח חדש. פתחו את האפליקציה לצפייה.',
+        'url': url_for('view_report', report_id=report.id),
+        'tag': f'report-{report.id}',
+    }, ensure_ascii=False)
+    stale = []
+    for subscription in subscriptions:
+        try:
+            webpush(
+                subscription_info={'endpoint': subscription.endpoint,
+                                   'keys': {'p256dh': subscription.p256dh, 'auth': subscription.auth}},
+                data=payload,
+                vapid_private_key=private_key,
+                vapid_claims={'sub': 'https://proshield-reports.onrender.com'},
+                ttl=3600,
+                timeout=3,
+            )
+        except WebPushException as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in (404, 410):
+                stale.append(subscription)
+            else:
+                app.logger.warning('Push notification delivery failed: HTTP %s', status)
+        except Exception:
+            app.logger.exception('Push notification delivery failed')
+    if stale:
+        for subscription in stale:
+            db.session.delete(subscription)
+        db.session.commit()
+
+
+@app.route('/api/push/config')
+@login_required
+def push_config():
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+    public_key = os.environ.get('VAPID_PUBLIC_KEY', '')
+    return jsonify({'available': bool(public_key and os.environ.get('VAPID_PRIVATE_KEY')),
+                    'public_key': public_key})
+
+
+@app.route('/api/push/subscriptions', methods=['POST', 'DELETE'])
+@login_required
+def push_subscriptions():
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'פרטי התראה לא תקינים'}), 400
+    subscription = data.get('subscription') if request.method == 'POST' else data
+    if not isinstance(subscription, dict):
+        return jsonify({'success': False, 'error': 'פרטי התראה לא תקינים'}), 400
+    endpoint = subscription.get('endpoint')
+    if not valid_push_endpoint(endpoint):
+        return jsonify({'success': False, 'error': 'כתובת התראה לא תקינה'}), 400
+
+    existing = PushSubscription.query.filter_by(endpoint=endpoint).first()
+    if request.method == 'DELETE':
+        if existing and existing.user_id == current_user.id:
+            db.session.delete(existing)
+            db.session.commit()
+        return jsonify({'success': True})
+
+    keys = subscription.get('keys')
+    if not isinstance(keys, dict):
+        return jsonify({'success': False, 'error': 'מפתח התראה חסר'}), 400
+    p256dh, auth = keys.get('p256dh'), keys.get('auth')
+    if not all(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]+', value)
+               for value in (p256dh, auth)) or len(p256dh) > 512 or len(auth) > 256:
+        return jsonify({'success': False, 'error': 'מפתח התראה לא תקין'}), 400
+    if not os.environ.get('VAPID_PRIVATE_KEY') or not os.environ.get('VAPID_PUBLIC_KEY'):
+        return jsonify({'success': False, 'error': 'התראות אינן מוגדרות בשרת'}), 503
+    if existing:
+        existing.user_id = current_user.id
+        existing.p256dh = p256dh
+        existing.auth = auth
+    else:
+        db.session.add(PushSubscription(user_id=current_user.id, endpoint=endpoint,
+                                        p256dh=p256dh, auth=auth))
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/push/subscriptions/status', methods=['POST'])
+@login_required
+def push_subscription_status():
+    if not current_user.is_admin():
+        return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get('endpoint') if isinstance(data, dict) else None
+    active = bool(isinstance(endpoint, str) and PushSubscription.query.filter_by(
+        endpoint=endpoint, user_id=current_user.id).first())
+    return jsonify({'active': active})
+
+
 @app.route('/api/admin/uploads-backup')
 @login_required
 def download_uploads_backup():
@@ -1288,6 +1408,11 @@ def create_report():
             ensure_company_project(company_project)
         db.session.commit()
 
+        if not current_user.is_admin():
+            try:
+                notify_admins_of_report(report)
+            except Exception:
+                app.logger.exception('Report saved, but push delivery failed')
         return jsonify({
             'success': True,
             'report_id': report.id,
@@ -2458,6 +2583,11 @@ def sync_offline_reports():
                 apply_inventory_change(name, -quantity, unit, 'report', report.id, current_user.id,
                                        f'Legacy offline report #{report.id}')
             db.session.commit()
+            if not current_user.is_admin():
+                try:
+                    notify_admins_of_report(report)
+                except Exception:
+                    app.logger.exception('Legacy report saved, but push delivery failed')
             synced_count += 1
         except (TypeError, ValueError) as e:
             db.session.rollback()

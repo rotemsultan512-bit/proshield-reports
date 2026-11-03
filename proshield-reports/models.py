@@ -20,6 +20,7 @@ class User(UserMixin, db.Model):
     # Relationship
     reports = db.relationship('Report', backref='author', lazy='dynamic')
 
+
     def set_password(self, password):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
@@ -31,6 +32,19 @@ class User(UserMixin, db.Model):
 
     def __repr__(self):
         return f'<User {self.username}>'
+
+
+class PushSubscription(db.Model):
+    __tablename__ = 'push_subscriptions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    endpoint = db.Column(db.String(2048), unique=True, nullable=False)
+    p256dh = db.Column(db.String(512), nullable=False)
+    auth = db.Column(db.String(256), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('push_subscriptions', cascade='all, delete-orphan'))
 
 
 class LoginAttempt(db.Model):
