@@ -115,7 +115,7 @@
         }
 
         container.innerHTML = items.map(item => `
-            <div class="inventory-row ${changedInventoryNames.has(item.product_name) ? 'is-edited' : ''} ${Number(item.quantity_unit) < 0 || Number(item.quantity_meter) < 0 ? 'has-negative-balance' : ''}" data-name="${escapeHtml(item.product_name)}">
+            <div class="inventory-row ${changedInventoryNames.has(item.product_name) ? 'is-edited' : ''} ${Number(item.quantity_unit) < 0 || Number(item.quantity_meter) < 0 ? 'has-negative-balance' : ''}" data-id="${item.id}">
                 <div class="inventory-cell inventory-name">${escapeHtml(item.product_name)}</div>
                 <div class="inventory-cell">
                     <label class="sr-only" for="unit-${item.id}">יחידות — ${escapeHtml(item.product_name)}</label>
@@ -140,7 +140,7 @@
         const input = event.target.closest('.inventory-input');
         if (!input) return;
         const row = input.closest('.inventory-row');
-        const item = inventoryItems.find(i => i.product_name === row.dataset.name);
+        const item = inventoryItems.find(i => i.id === Number(row.dataset.id));
         if (!item) return;
         item[input.dataset.unit === 'unit' ? 'quantity_unit' : 'quantity_meter'] = input.value;
         const original = originalInventoryValues.get(item.product_name);
