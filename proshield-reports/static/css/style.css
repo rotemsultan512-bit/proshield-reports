@@ -1949,6 +1949,35 @@ a:hover {
     font-size: var(--font-size-sm);
 }
 
+.worker-options {
+    display: grid;
+    gap: .5rem;
+    margin-top: .65rem;
+}
+
+.worker-option {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    padding: .7rem .9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    cursor: pointer;
+}
+
+.worker-option:has(input:checked) {
+    border-color: var(--brand-primary);
+    background: rgba(247, 168, 50, .1);
+}
+
+.worker-option:focus-within {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: 2px;
+}
+
+.worker-option input { width: 1.1rem; height: 1.1rem; }
+
 /* Products Selector */
 .products-selector {
     border: 1px solid var(--border);

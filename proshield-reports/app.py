@@ -75,6 +75,62 @@ def load_user(user_id):
     # Existing sessions start at version zero; a password change revokes them.
     return user if session.get('auth_version', 0) == (user.session_version or 0) else None
 
+
+def match_legacy_workers(name, reporter_id, users):
+    """Link old free-text names only when each token identifies one other account."""
+    matched = []
+    all_matched = True
+    for raw in re.split(r'\s*(?:\+|,| ו)\s*', name.strip()):
+        token = ' '.join(raw.split()).casefold()
+        if token == 'איוון':
+            token = 'איבן'
+        if not token:
+            continue
+        candidates = [user for user in users if user.id != reporter_id and
+                      token in (user.full_name.casefold(), user.full_name.split()[0].casefold(),
+                                user.username.casefold())]
+        if len(candidates) == 1:
+            if candidates[0] not in matched:
+                matched.append(candidates[0])
+        else:
+            all_matched = False
+    return matched, all_matched and bool(matched)
+
+
+def selected_installation_workers(raw_ids, legacy_name, reporter_id, existing_ids=()):
+    """Resolve account IDs supplied by the report form; reject invented or duplicate IDs."""
+    if raw_ids is None and legacy_name:
+        workers, complete = match_legacy_workers(legacy_name, reporter_id, User.query.all())
+        if complete:
+            return workers
+        raise ValueError('יש לפתוח מחדש את הדוח ולבחור עובדים מתוך רשימת החשבונות')
+    try:
+        ids = json.loads(raw_ids or '[]')
+    except (TypeError, ValueError):
+        raise ValueError('רשימת העובדים אינה תקינה') from None
+    if (not isinstance(ids, list) or not ids or len(ids) > 20 or
+            any(type(value) is not int or value <= 0 for value in ids) or len(set(ids)) != len(ids) or
+            reporter_id in ids):
+        raise ValueError('יש לבחור לפחות עובד נוסף אחד מתוך הרשימה')
+    workers = User.query.filter(User.id.in_(ids)).all()
+    if len(workers) != len(ids) or any(not user.is_active and user.id not in existing_ids for user in workers):
+        raise ValueError('אחד העובדים שנבחרו אינו זמין')
+    by_id = {user.id: user for user in workers}
+    selected = [by_id[user_id] for user_id in ids]
+    if len(', '.join(user.full_name for user in selected)) > 200:
+        raise ValueError('נבחרו יותר מדי עובדים לדוח אחד')
+    return selected
+
+
+def can_view_report(report):
+    return (current_user.is_admin() or report.user_id == current_user.id or
+            any(worker.id == current_user.id for worker in report.additional_workers))
+
+
+def own_or_shared_reports(user_id):
+    return Report.query.filter(or_(Report.user_id == user_id,
+                                   Report.additional_workers.any(User.id == user_id)))
+
 def init_db():
     """Initialize the schema and inventory catalog.
 
@@ -244,6 +300,14 @@ def init_db():
         except Exception as e:
             db.session.rollback()
             raise RuntimeError(f"Schema migration failed: {e}") from e
+
+        # Credit historical coworkers when their free-text names identify unique accounts.
+        users = User.query.all()
+        for report in Report.query.filter_by(report_type='installation', installation_team='with_worker').all():
+            if report.additional_worker_name and not report.additional_workers:
+                workers, _ = match_legacy_workers(report.additional_worker_name, report.user_id, users)
+                report.additional_workers = workers
+        db.session.commit()
 
         # Ensure inventory items exist for all products
         existing_items = {i.product_name for i in InventoryItem.query.all()}
@@ -515,7 +579,10 @@ def new_report():
     signed_notes = DeliveryNote.query.filter_by(
         employee_id=current_user.id, report_id=None
     ).filter(DeliveryNote.signed_at.isnot(None)).order_by(DeliveryNote.signed_at.desc()).all()
-    return render_template('new_report.html', products=PRODUCTS, signed_notes=signed_notes)
+    worker_options = (User.query.filter(User.is_active.is_(True), User.id != current_user.id)
+                      .order_by(User.full_name).all())
+    return render_template('new_report.html', products=PRODUCTS, signed_notes=signed_notes,
+                           worker_options=worker_options)
 
 @app.route('/report/<int:report_id>')
 @login_required
@@ -523,7 +590,7 @@ def view_report(report_id):
     report = Report.query.get_or_404(report_id)
 
     # Check access permission
-    if not current_user.is_admin() and report.user_id != current_user.id:
+    if not can_view_report(report):
         flash('אין לך הרשאה לצפות בדוח זה', 'error')
         return redirect(url_for('dashboard'))
 
@@ -534,6 +601,7 @@ def view_report(report_id):
     return render_template(
         'view_report.html',
         report=report,
+        can_manage=current_user.is_admin() or report.user_id == current_user.id,
         available_images=available_images,
         missing_image_count=len(images) - len(available_images),
         available_documents=available_documents,
@@ -924,8 +992,12 @@ def edit_report(report_id):
     existing_signed_note = DeliveryNote.query.filter_by(report_id=report.id).first()
     if existing_signed_note and existing_signed_note.employee_id == current_user.id:
         signed_notes.insert(0, existing_signed_note)
+    worker_options = (User.query.filter(User.id != report.user_id,
+                         or_(User.is_active.is_(True), User.id.in_([u.id for u in report.additional_workers])))
+                      .order_by(User.full_name).all())
     return render_template('new_report.html', products=PRODUCTS, edit_mode=True,
                            report_id=report.id, signed_notes=signed_notes,
+                           worker_options=worker_options,
                            selected_note_id=existing_signed_note.id if existing_signed_note else None)
 
 @app.route('/settings')
@@ -1126,9 +1198,10 @@ def get_reports():
     if current_user.is_admin():
         query = Report.query
         if user_id:
-            query = query.filter(Report.user_id == user_id)
+            query = query.filter(or_(Report.user_id == user_id,
+                                     Report.additional_workers.any(User.id == user_id)))
     else:
-        query = Report.query.filter_by(user_id=current_user.id)
+        query = own_or_shared_reports(current_user.id)
     query = query.filter(Report.is_archived.is_(show_archived))
 
     # Apply filters
@@ -1158,7 +1231,8 @@ def get_reports():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
     return jsonify({
-        'reports': [r.to_dict() for r in pagination.items],
+        'reports': [dict(r.to_dict(), can_manage=current_user.is_admin() or r.user_id == current_user.id)
+                    for r in pagination.items],
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page
@@ -1174,7 +1248,7 @@ def get_reports_stats():
     if current_user.is_admin():
         base_query = Report.query.filter(Report.is_archived.is_(False))
     else:
-        base_query = Report.query.filter_by(user_id=current_user.id, is_archived=False)
+        base_query = own_or_shared_reports(current_user.id).filter(Report.is_archived.is_(False))
 
     # Total reports
     total = base_query.count()
@@ -1227,6 +1301,7 @@ def create_report():
         # Installation team fields
         installation_team = (request.form.get('installation_team') or '').strip()
         additional_worker_name = (request.form.get('additional_worker_name') or '').strip()
+        additional_worker_ids = request.form.get('additional_worker_ids')
 
         # installation_types is expected to be a JSON array string from the client
         installation_types_raw = request.form.get('installation_types')
@@ -1261,6 +1336,7 @@ def create_report():
         protections_count = None
         installation_types_list = []
         installation_type_display = None
+        additional_workers = []
 
         if report_type == 'installation':
             # Parse types
@@ -1293,8 +1369,12 @@ def create_report():
             if installation_team not in ('solo', 'with_worker') or len(additional_worker_name) > 200:
                 return jsonify({'success': False, 'error': 'פרטי צוות ההתקנה לא תקינים'}), 400
 
-            if installation_team == 'with_worker' and not additional_worker_name:
-                return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
+            if installation_team == 'with_worker':
+                try:
+                    additional_workers = selected_installation_workers(
+                        additional_worker_ids, additional_worker_name, current_user.id)
+                except ValueError as exc:
+                    return jsonify({'success': False, 'error': str(exc)}), 400
 
         try:
             products_data = parse_products(products_json)
@@ -1333,7 +1413,8 @@ def create_report():
             ),
             protections_count=protections_count if report_type == 'installation' else None,
             installation_team=installation_team if report_type == 'installation' else None,
-            additional_worker_name=additional_worker_name if report_type == 'installation' and installation_team == 'with_worker' else None,
+            additional_worker_name=', '.join(worker.full_name for worker in additional_workers) or None,
+            additional_workers=additional_workers,
             address=address,
             status=status,
             notes=notes,
@@ -1434,7 +1515,7 @@ def get_report(report_id):
     """Get single report"""
     report = Report.query.get_or_404(report_id)
 
-    if not current_user.is_admin() and report.user_id != current_user.id:
+    if not can_view_report(report):
         return jsonify({'success': False, 'error': 'אין הרשאה'}), 403
 
     return jsonify(report.to_dict())
@@ -1466,6 +1547,7 @@ def update_report(report_id):
 
         installation_team = (request.form.get('installation_team') or '').strip()
         additional_worker_name = (request.form.get('additional_worker_name') or '').strip()
+        additional_worker_ids = request.form.get('additional_worker_ids')
 
         installation_types_raw = request.form.get('installation_types')
         installation_type_single = request.form.get('installation_type')
@@ -1493,6 +1575,7 @@ def update_report(report_id):
         # Installation types
         installation_types_list = []
         installation_type_display = None
+        additional_workers = []
         if report_type == 'installation':
             if installation_types_raw:
                 try:
@@ -1516,8 +1599,13 @@ def update_report(report_id):
             if installation_team not in ('solo', 'with_worker') or len(additional_worker_name) > 200:
                 return jsonify({'success': False, 'error': 'פרטי צוות ההתקנה לא תקינים'}), 400
 
-            if installation_team == 'with_worker' and not additional_worker_name:
-                return jsonify({'success': False, 'error': 'יש להזין שם עובד נוסף'}), 400
+            if installation_team == 'with_worker':
+                try:
+                    additional_workers = selected_installation_workers(
+                        additional_worker_ids, additional_worker_name, report.user_id,
+                        {worker.id for worker in report.additional_workers})
+                except ValueError as exc:
+                    return jsonify({'success': False, 'error': str(exc)}), 400
 
         try:
             products_data = parse_products(products_json)
@@ -1580,7 +1668,14 @@ def update_report(report_id):
         )
         report.installation_type = installation_type_display if report_type == 'installation' else None
         report.installation_team = installation_team if report_type == 'installation' else None
-        report.additional_worker_name = additional_worker_name if report_type == 'installation' and installation_team == 'with_worker' else None
+        previous_worker_ids = {worker.id for worker in report.additional_workers}
+        selected_worker_ids = {worker.id for worker in additional_workers}
+        report.additional_worker_name = (
+            report.additional_worker_name
+            if selected_worker_ids and selected_worker_ids == previous_worker_ids and report.additional_worker_name
+            else ', '.join(worker.full_name for worker in additional_workers) or None
+        )
+        report.additional_workers = additional_workers
 
         # Add new products + apply inventory
         for product in products_data:
@@ -2141,7 +2236,8 @@ def get_stats():
     users = User.query.all()
     reports_per_user = []
     for user in users:
-        count = active_reports.filter_by(user_id=user.id).count()
+        count = active_reports.filter(or_(Report.user_id == user.id,
+                                          Report.additional_workers.any(User.id == user.id))).count()
         reports_per_user.append({
             'user_id': user.id,
             'full_name': user.full_name,
@@ -2157,7 +2253,7 @@ def get_stats():
         'reports_per_user': reports_per_user
     })
 
-def _export_reports_to_excel(reports, filename_prefix):
+def _export_reports_to_excel(reports, filename_prefix, report_owner=None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
     from io import BytesIO
@@ -2188,16 +2284,17 @@ def _export_reports_to_excel(reports, filename_prefix):
     subtitle_font = Font(name='Arial', bold=True, size=11, color='555555')
 
     # Title row
-    ws.merge_cells('A1:K1')
+    ws.merge_cells('A1:L1')
     title_cell = ws['A1']
     title_cell.value = 'דוח עבודה מפורט'
     title_cell.font = title_font
     title_cell.alignment = Alignment(horizontal='center', vertical='center')
 
     # Subtitle with user name and date range
-    ws.merge_cells('A2:K2')
+    ws.merge_cells('A2:L2')
     subtitle_cell = ws['A2']
-    user_name = reports[0].author.full_name if reports and reports[0].author else ''
+    user_name = report_owner.full_name if report_owner else (
+        reports[0].author.full_name if reports and reports[0].author else '')
     if reports:
         dates = [r.timestamp for r in reports if r.timestamp]
         if dates:
@@ -2221,7 +2318,8 @@ def _export_reports_to_excel(reports, filename_prefix):
         'כמות',
         'יחידת מידה',
         'סטטוס',
-        'הערות'
+        'הערות',
+        'עובדים נוספים'
     ]
 
     for col_idx, header in enumerate(headers, 1):
@@ -2254,7 +2352,8 @@ def _export_reports_to_excel(reports, filename_prefix):
                 '',
                 '',
                 'הושלם' if report.status == 'completed' else 'נדרש חזרה',
-                report.notes or ''
+                report.notes or '',
+                report.additional_worker_name or '' if report.report_type == 'installation' else ''
             ], 1):
                 cell = ws.cell(row=row_num, column=col_idx, value=val)
                 cell.alignment = cell_alignment if col_idx not in [8] else number_alignment
@@ -2281,7 +2380,8 @@ def _export_reports_to_excel(reports, filename_prefix):
                     product.quantity,
                     unit_label,
                     'הושלם' if report.status == 'completed' else 'נדרש חזרה',
-                    report.notes or '' if p_idx == 0 else ''
+                    report.notes or '' if p_idx == 0 else '',
+                    report.additional_worker_name or '' if report.report_type == 'installation' else ''
                 ]
 
                 for col_idx, val in enumerate(row_data, 1):
@@ -2355,7 +2455,7 @@ def _export_reports_to_excel(reports, filename_prefix):
     cell_total_unit.fill = grand_fill
 
     # Column widths
-    col_widths = [14, 8, 10, 18, 22, 28, 28, 10, 12, 12, 20]
+    col_widths = [14, 8, 10, 18, 22, 28, 28, 10, 12, 12, 20, 28]
     for i, width in enumerate(col_widths, 1):
         ws.column_dimensions[chr(64 + i)].width = width
 
@@ -2437,7 +2537,8 @@ def export_reports():
     query = Report.query.filter(Report.is_archived.is_(False))
 
     if user_id:
-        query = query.filter(Report.user_id == user_id)
+        query = query.filter(or_(Report.user_id == user_id,
+                                 Report.additional_workers.any(User.id == user_id)))
     if date_from:
         query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
     if date_to:
@@ -2447,7 +2548,7 @@ def export_reports():
 
     reports = query.order_by(Report.timestamp.desc()).all()
 
-    return _export_reports_to_excel(reports, 'reports')
+    return _export_reports_to_excel(reports, 'reports', db.session.get(User, user_id) if user_id else None)
 
 
 @app.route('/api/export/mine')
@@ -2465,7 +2566,7 @@ def export_my_reports():
         date_from = f"{now.year}-{now.month:02d}-01"
         date_to = f"{now.year}-{now.month:02d}-{now.day:02d}"
 
-    query = Report.query.filter_by(user_id=current_user.id, is_archived=False)
+    query = own_or_shared_reports(current_user.id).filter(Report.is_archived.is_(False))
 
     if date_from:
         query = query.filter(Report.timestamp >= datetime.fromisoformat(date_from))
@@ -2476,7 +2577,7 @@ def export_my_reports():
 
     reports = query.order_by(Report.timestamp.desc()).all()
 
-    return _export_reports_to_excel(reports, 'my_reports')
+    return _export_reports_to_excel(reports, 'my_reports', current_user)
 
 @app.route('/api/sync', methods=['POST'])
 @login_required
@@ -2543,6 +2644,16 @@ def sync_offline_reports():
                 offline_installation_types = []
 
             installation_type_display = ', '.join([str(x) for x in offline_installation_types if x])
+            offline_team = report_data.get('installation_team') if offline_type == 'installation' else None
+            offline_worker_name = str(report_data.get('additional_worker_name') or '').strip()
+            if offline_team not in (None, 'solo', 'with_worker') or len(offline_worker_name) > 200:
+                raise ValueError('פרטי צוות ההתקנה לא תקינים')
+            offline_workers = []
+            if offline_team == 'with_worker':
+                raw_ids = report_data.get('additional_worker_ids')
+                if isinstance(raw_ids, list):
+                    raw_ids = json.dumps(raw_ids)
+                offline_workers = selected_installation_workers(raw_ids, offline_worker_name, current_user.id)
 
             report_datetime_raw = report_data.get('report_datetime') or report_data.get('timestamp')
             if not report_datetime_raw:
@@ -2565,6 +2676,9 @@ def sync_offline_reports():
                     else None
                 ),
                 protections_count=offline_protections_count if offline_type == 'installation' else None,
+                installation_team=offline_team,
+                additional_worker_name=', '.join(worker.full_name for worker in offline_workers) or None,
+                additional_workers=offline_workers,
                 address=address,
                 status=status,
                 notes=report_data.get('notes', ''),
@@ -2612,7 +2726,7 @@ def uploaded_file(filename):
         return jsonify({'error': 'קובץ לא נמצא'}), 404
 
     report = Report.query.get_or_404(int(report_id_text))
-    if not current_user.is_admin() and report.user_id != current_user.id:
+    if not can_view_report(report):
         return jsonify({'error': 'קובץ לא נמצא'}), 404
 
     attachment_paths = {

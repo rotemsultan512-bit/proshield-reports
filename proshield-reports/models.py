@@ -5,6 +5,12 @@ import bcrypt
 
 db = SQLAlchemy()
 
+report_workers = db.Table(
+    'report_workers',
+    db.Column('report_id', db.Integer, db.ForeignKey('reports.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True, index=True),
+)
+
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
 
@@ -133,6 +139,7 @@ class Report(db.Model):
     protections_count = db.Column(db.Integer)
     installation_team = db.Column(db.String(20))  # 'solo' or 'with_worker'
     additional_worker_name = db.Column(db.String(200))
+    additional_workers = db.relationship('User', secondary=report_workers, lazy='select')
 
     synced = db.Column(db.Boolean, default=True)  # For offline support
 
@@ -156,6 +163,7 @@ class Report(db.Model):
             'protections_count': self.protections_count,
             'installation_team': self.installation_team,
             'additional_worker_name': self.additional_worker_name,
+            'additional_worker_ids': [worker.id for worker in self.additional_workers],
             'address': self.address,
             'status': self.status,
             'is_archived': self.is_archived,

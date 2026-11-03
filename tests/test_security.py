@@ -15,6 +15,7 @@ from unittest.mock import patch
 from pathlib import Path
 from PIL import Image, ImageDraw
 from pypdf import PdfReader, PdfWriter
+from openpyxl import load_workbook
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +29,7 @@ os.environ['SECRET_KEY'] = 'test-only-secret'
 os.environ.pop('RENDER', None)
 os.environ.pop('RENDER_SERVICE_ID', None)
 
-from app import app  # noqa: E402
+from app import app, init_db, match_legacy_workers  # noqa: E402
 from models import db, CompanyProject, DeliveryNote, InventoryItem, InventoryTransaction, PasswordResetToken, PushSubscription, Report, ReportDocument, ReportImage, User  # noqa: E402
 
 
@@ -573,7 +574,7 @@ class SecurityTests(unittest.TestCase):
             with client.get('/uploads/reports/' + path.replace('\\', '/')) as file_response:
                 self.assertEqual(file_response.status_code, 200)
 
-    def test_installation_report_keeps_team_and_restricts_evidence(self):
+    def test_installation_report_keeps_team_and_shares_evidence_with_coworker(self):
         owner = self.client_as(self.owner_id)
         headers = {'X-CSRFToken': self.csrf_for(owner)}
         created = owner.post('/api/reports', data={
@@ -585,7 +586,7 @@ class SecurityTests(unittest.TestCase):
             'status': 'return_required',
             'installation_types': json.dumps(['הגנת מדרגות']),
             'installation_team': 'with_worker',
-            'additional_worker_name': 'Test colleague',
+            'additional_worker_ids': json.dumps([self.other_id]),
             'products': json.dumps([{'name': 'Installation test product', 'quantity': 3, 'unit': 'meter'}]),
             'images': (self.image_bytes(), 'worksite.png'),
         }, headers=headers)
@@ -593,14 +594,15 @@ class SecurityTests(unittest.TestCase):
         report_id = created.json['report_id']
         data = owner.get(f'/api/reports/{report_id}').json
         self.assertEqual(data['installation_team'], 'with_worker')
-        self.assertEqual(data['additional_worker_name'], 'Test colleague')
+        self.assertEqual(data['additional_worker_name'], 'Other')
         self.assertEqual(json.loads(data['installation_types']), ['הגנת מדרגות'])
         self.assertEqual(len(data['images']), 1)
 
         other = self.client_as(self.other_id)
-        self.assertEqual(other.get(f'/api/reports/{report_id}').status_code, 403)
+        self.assertEqual(other.get(f'/api/reports/{report_id}').status_code, 200)
         image_url = '/uploads/reports/' + data['images'][0]['image_path'].replace('\\', '/')
-        self.assertEqual(other.get(image_url).status_code, 404)
+        with other.get(image_url) as image_response:
+            self.assertEqual(image_response.status_code, 200)
         with owner.get(image_url) as image_response:
             self.assertEqual(image_response.status_code, 200)
         with app.app_context():
@@ -686,6 +688,97 @@ class SecurityTests(unittest.TestCase):
             with app.app_context():
                 self.assertEqual(PushSubscription.query.filter_by(endpoint=endpoint).count(), 0)
 
+    def test_installation_is_credited_to_each_selected_worker_once(self):
+        with app.app_context():
+            helper = User(username='helper-installation', full_name='Helper Installer', role='user')
+            helper.set_password('helper-password')
+            stranger = User(username='stranger-installation', full_name='Stranger', role='user')
+            stranger.set_password('stranger-password')
+            db.session.add_all([helper, stranger])
+            db.session.commit()
+            helper_id, stranger_id = helper.id, stranger.id
+        owner = self.client_as(self.owner_id)
+        coworker = self.client_as(self.other_id)
+        helper_client = self.client_as(helper_id)
+        stranger_client = self.client_as(stranger_id)
+        headers = {'X-CSRFToken': self.csrf_for(owner)}
+        form = {
+            'client_id': 'team-installation-test', 'report_type': 'installation',
+            'customer_name': 'Team Customer', 'address': 'Team Street 7',
+            'report_datetime': '2026-11-03T10:00', 'status': 'completed',
+            'installation_types': json.dumps(['Floor protection']),
+            'installation_team': 'with_worker',
+            'additional_worker_ids': json.dumps([self.other_id, helper_id]),
+            'products': json.dumps([{'name': 'Team product', 'quantity': 1, 'unit': 'unit'}]),
+        }
+        invalid = owner.post('/api/reports', data=dict(form, client_id='invalid-team',
+            additional_worker_ids=json.dumps([self.owner_id])), headers=headers)
+        self.assertEqual(invalid.status_code, 400)
+        created = owner.post('/api/reports', data=form, headers=headers)
+        self.assertEqual(created.status_code, 200, created.json)
+        report_id = created.json['report_id']
+        with app.app_context():
+            report = db.session.get(Report, report_id)
+            self.assertEqual({u.id for u in report.additional_workers}, {self.other_id, helper_id})
+
+        admin = self.client_as(self.admin_id)
+        for worker_id in (self.owner_id, self.other_id, helper_id):
+            assigned = admin.get(f'/api/reports?user_id={worker_id}').json['reports']
+            self.assertEqual(sum(r['id'] == report_id for r in assigned), 1)
+            monthly = admin.get(f'/api/export?user_id={worker_id}&date_from=2026-11-01&date_to=2026-11-30')
+            sheet = load_workbook(BytesIO(monthly.data), read_only=True)['דוחות מפורטים']
+            self.assertEqual(sum(len(row) > 5 and row[5] == 'Team Street 7'
+                                 for row in sheet.iter_rows(min_row=5, values_only=True)), 1)
+        counts = {row['user_id']: row['count'] for row in admin.get('/api/stats').json['reports_per_user']}
+        self.assertEqual(counts[self.other_id], 1)
+        self.assertEqual(counts[helper_id], 1)
+
+        for person, expected_name in ((coworker, 'Other'), (helper_client, 'Helper Installer')):
+            mine = person.get('/api/reports').json['reports']
+            self.assertEqual(sum(r['id'] == report_id for r in mine), 1)
+            self.assertEqual(person.get(f'/api/reports/{report_id}').status_code, 200)
+            self.assertEqual(person.get(f'/report/{report_id}').status_code, 200)
+            self.assertEqual(person.get(f'/report/{report_id}/edit').status_code, 302)
+            export = person.get('/api/export/mine?date_from=2026-11-01&date_to=2026-11-30')
+            workbook = load_workbook(BytesIO(export.data), read_only=True)
+            sheet = workbook['דוחות מפורטים']
+            team_rows = [row for row in sheet.iter_rows(min_row=5, values_only=True)
+                         if len(row) > 11 and row[5] == 'Team Street 7']
+            self.assertEqual(len(team_rows), 1)
+            self.assertIn('Helper Installer', team_rows[0][11])
+            self.assertIn('Other', team_rows[0][11])
+            self.assertIn(f'עובד: {expected_name}', str(sheet['A2'].value))
+        self.assertEqual(coworker.delete(f'/api/reports/{report_id}',
+            headers={'X-CSRFToken': self.csrf_for(coworker)}).status_code, 403)
+        self.assertEqual(stranger_client.get(f'/api/reports/{report_id}').status_code, 403)
+
+        revised = owner.put(f'/api/reports/{report_id}', data=dict(form,
+            additional_worker_ids=json.dumps([helper_id])), headers=headers)
+        self.assertEqual(revised.status_code, 200, revised.json)
+        self.assertEqual(coworker.get(f'/api/reports/{report_id}').status_code, 403)
+        self.assertEqual(helper_client.get(f'/api/reports/{report_id}').status_code, 200)
+
+    def test_legacy_team_names_only_link_unambiguous_accounts(self):
+        with app.app_context():
+            users = [db.session.get(User, self.owner_id), db.session.get(User, self.other_id)]
+            matched, complete = match_legacy_workers('Other ואופק', self.owner_id, users)
+            self.assertEqual([user.id for user in matched], [self.other_id])
+            self.assertFalse(complete)
+            legacy = Report(user_id=self.owner_id, report_type='installation',
+                            installation_team='with_worker', additional_worker_name='Other',
+                            address='Legacy site', status='completed')
+            ambiguous = Report(user_id=self.owner_id, report_type='installation',
+                               installation_team='with_worker', additional_worker_name='כולם',
+                               address='Unclear legacy site', status='completed')
+            db.session.add_all([legacy, ambiguous])
+            db.session.commit()
+            legacy_id, ambiguous_id = legacy.id, ambiguous.id
+        init_db()
+        with app.app_context():
+            self.assertEqual([user.id for user in db.session.get(Report, legacy_id).additional_workers],
+                             [self.other_id])
+            self.assertEqual(db.session.get(Report, ambiguous_id).additional_workers, [])
+
     def test_report_rejects_invalid_type_and_status(self):
         client = self.client_as(self.owner_id)
         headers = {'X-CSRFToken': self.csrf_for(client)}
@@ -744,6 +837,8 @@ class SecurityTests(unittest.TestCase):
             'customer_name': 'Legacy Customer',
             'report_datetime': '2026-10-12T11:00',
             'installation_types': ['window'],
+            'installation_team': 'with_worker',
+            'additional_worker_ids': [self.other_id],
             'address': 'Legacy address',
             'status': 'completed',
             'products': [{'name': 'Legacy test product', 'quantity': 2, 'unit': 'meter'}],
@@ -754,6 +849,8 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(second.json['synced_count'], 1)
         with app.app_context():
             self.assertEqual(Report.query.filter_by(client_id='legacy-test-001').count(), 1)
+            self.assertEqual([u.id for u in Report.query.filter_by(client_id='legacy-test-001').one().additional_workers],
+                             [self.other_id])
             item = InventoryItem.query.filter_by(product_name='Legacy test product').one()
             self.assertEqual(item.quantity_meter, -2)
 
