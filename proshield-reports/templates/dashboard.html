@@ -442,6 +442,7 @@
                         <span class="report-status ${report.is_archived ? 'archived' : report.status}">
                             ${report.is_archived ? 'בארכיון' : report.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}
                         </span>
+                        ${!report.can_manage ? '<span class="report-status">השתתפתי בצוות</span>' : ''}
                     </div>
                     <div class="report-card-body">
                         <div class="report-address">
@@ -465,12 +466,12 @@
                         </span>
                     </div>
                 </a>
-                <div class="report-card-actions">
-                    ${report.is_archived
+                ${report.can_manage ? '<div class="report-card-actions">' : ''}
+                    ${report.can_manage ? (report.is_archived
                         ? `<button class="btn-card-action btn-restore-action" data-report-id="${report.id}" aria-label="שחזר דוח ${report.id}" title="שחזר">↩</button>`
                         : `<a href="/report/${report.id}/edit" class="btn-card-action btn-edit-action" aria-label="ערוך דוח ${report.id}" title="ערוך">✏️</a>
-                           <button class="btn-card-action btn-delete-action" data-report-id="${report.id}" aria-label="העבר דוח ${report.id} לארכיון" title="העבר לארכיון">▤</button>`}
-                </div>
+                           <button class="btn-card-action btn-delete-action" data-report-id="${report.id}" aria-label="העבר דוח ${report.id} לארכיון" title="העבר לארכיון">▤</button>`) : ''}
+                ${report.can_manage ? '</div>' : ''}
             </div>
         `).join('');
 

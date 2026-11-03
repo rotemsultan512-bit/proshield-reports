@@ -7,7 +7,7 @@
     <div class="page-header">
         <a href="{{ url_for('dashboard') }}" class="back-link">◀ חזרה לדוחות</a>
         <h1>📋 דוח #{{ report.id }}</h1>
-        <div class="report-actions">
+        {% if can_manage %}<div class="report-actions">
             {% if report.is_archived %}
             <button class="btn btn-secondary btn-sm" id="restoreBtn">↩ שחזר דוח</button>
             {% else %}
@@ -18,7 +18,7 @@
                 ▤ העבר לארכיון
             </button>
             {% endif %}
-        </div>
+        </div>{% endif %}
     </div>
 
     <div class="report-details">
@@ -46,7 +46,7 @@
 
             <div class="detail-row">
                 <span class="detail-label">👤 משתמש:</span>
-                <span class="detail-value">{{ report.author.full_name }}</span>
+                <span class="detail-value">{{ report.author.full_name }}{% if not can_manage %} · השתתפתי בצוות{% endif %}</span>
             </div>
 
             <div class="detail-row">
@@ -82,7 +82,7 @@
                     {% if report.installation_team == 'solo' %}
                         רק אני
                     {% elif report.installation_team == 'with_worker' %}
-                        אני ועובד נוסף: {{ report.additional_worker_name or '-' }}
+                        אני ועובדים נוספים: {{ report.additional_worker_name or '-' }}
                     {% else %}
                         -
                     {% endif %}
@@ -133,7 +133,7 @@
             {% if missing_image_count %}
             <p class="missing-evidence-notice" role="status">
                 {% if missing_image_count == 1 %}תמונה מקורית אחת חסרה בשרת.{% else %}{{ missing_image_count }} תמונות מקוריות חסרות בשרת.{% endif %} פרטי הדוח נשמרו.
-                {% if not report.is_archived %}<a href="{{ url_for('edit_report', report_id=report.id) }}">אפשר לצרף תמונות מחדש בעריכת הדוח</a>.{% endif %}
+                {% if not report.is_archived and can_manage %}<a href="{{ url_for('edit_report', report_id=report.id) }}">אפשר לצרף תמונות מחדש בעריכת הדוח</a>.{% endif %}
             </p>
             {% endif %}
             {% if available_images %}
