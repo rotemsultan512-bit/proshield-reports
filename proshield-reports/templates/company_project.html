@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - Proshield Reports{% endblock %}
+
+{% block content %}
+<div class="company-detail-page">
+    <a href="{{ return_url }}" class="back-link" data-fixed-return>◀ חזרה לחברות ולפרויקטים</a>
+    <header class="company-detail-hero">
+        <div>
+            <span class="page-eyebrow">כרטיס חברה / פרויקט</span>
+            <h1>{{ project.name }}</h1>
+            <p>כל הדיווחים ותעודות המשלוח שנרשמו תחת השם הזה.</p>
+        </div>
+        <a class="btn btn-secondary" href="{{ url_for('dashboard', search=project.name) }}">חפש בדוחות</a>
+    </header>
+
+    <section class="company-detail-stats" aria-label="סיכום פעילות">
+        <div><strong>{{ reports|length }}</strong><span>דוחות</span></div>
+        <div><strong>{{ reports|selectattr('report_type', 'equalto', 'delivery')|list|length }}</strong><span>אספקות</span></div>
+        <div><strong>{{ reports|selectattr('report_type', 'equalto', 'installation')|list|length }}</strong><span>התקנות</span></div>
+        <div><strong>{{ reports|selectattr('status', 'equalto', 'return_required')|list|length }}</strong><span>נדרש חזרה</span></div>
+        <div><strong>{{ notes|selectattr('signed_at')|list|length }}</strong><span>תעודות חתומות</span></div>
+    </section>
+
+    <div class="company-detail-layout">
+        <section class="company-detail-panel" aria-labelledby="companyReportsTitle">
+            <div class="company-detail-section-heading"><span class="section-kicker">שטח</span><h2 id="companyReportsTitle">דוחות החברה</h2></div>
+            {% if reports %}
+            <div class="company-report-list">
+                {% for report in reports %}
+                <a class="company-report-link" href="{{ url_for('view_report', report_id=report.id, return_to=request.full_path.rstrip('?')) }}">
+                    <span class="company-report-icon">{{ '🚚' if report.report_type == 'delivery' else '🔧' }}</span>
+                    <span class="company-report-main"><strong>{{ report.address }}</strong><small>{{ report.customer_name or 'ללא שם לקוח' }} · {{ report.author.full_name }}{% if report.additional_worker_name %} + {{ report.additional_worker_name }}{% endif %}</small></span>
+                    <span class="company-report-meta"><strong>{{ report.timestamp.strftime('%d.%m.%Y') if report.timestamp else '—' }}</strong><small>{{ 'הושלם' if report.status == 'completed' else 'נדרש חזרה' }}{% if report.is_archived %} · בארכיון{% endif %}</small></span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}<p class="company-detail-empty">עדיין אין דוחות לחברה הזאת.</p>{% endif %}
+        </section>
+
+        <aside class="company-detail-side">
+            <section class="company-detail-panel" aria-labelledby="companyProductsTitle">
+                <div class="company-detail-section-heading"><span class="section-kicker">כמויות</span><h2 id="companyProductsTitle">מוצרים שדווחו</h2></div>
+                {% if product_totals %}
+                <div class="company-product-list">
+                    {% for (name, unit, report_type), total in product_totals %}
+                    <div><span>{{ name }} <small>· {{ 'אספקה' if report_type == 'delivery' else 'התקנה' }}</small></span><strong>{{ '%g'|format(total) }} {{ unit_labels.get(unit, unit) }}</strong></div>
+                    {% endfor %}
+                </div>
+                {% else %}<p class="company-detail-empty">אין מוצרים מדווחים.</p>{% endif %}
+            </section>
+            <section class="company-detail-panel" aria-labelledby="companyNotesTitle">
+                <div class="company-detail-section-heading"><span class="section-kicker">מסמכים</span><h2 id="companyNotesTitle">תעודות משלוח</h2></div>
+                {% if notes %}
+                <div class="company-note-list">
+                    {% for note in notes %}
+                    <a href="{{ url_for('delivery_note_detail', note_id=note.id) }}"><strong>#{{ note.id }} · {{ note.address }}</strong><small>{{ 'נחתמה' if note.signed_at else 'ממתינה לחתימה' }} · {{ note.created_at.strftime('%d.%m.%Y') if note.created_at else '—' }}</small></a>
+                    {% endfor %}
+                </div>
+                {% else %}<p class="company-detail-empty">אין תעודות משלוח מקושרות.</p>{% endif %}
+            </section>
+        </aside>
+    </div>
+</div>
+{% endblock %}

@@ -95,7 +95,7 @@
                 <label for="filterSearch" class="sr-only">חיפוש דוחות</label>
                 <input type="search" id="filterSearch" placeholder="חיפוש לפי כתובת, לקוח או פרויקט...">
             </div>
-            <button class="btn btn-secondary btn-sm" id="exportMineBtn">הורד דוח חודשי שלי</button>
+            {% if current_user.is_admin() %}<a class="btn btn-secondary btn-sm" href="{{ url_for('admin_dashboard', tab='export') }}">יצוא לפי עובד ←</a>{% else %}<button class="btn btn-secondary btn-sm" id="exportMineBtn">הורד דוח חודשי שלי</button>{% endif %}
         </div>
         <details class="advanced-filters" id="advancedFilters">
             <summary>סינון מתקדם</summary>
@@ -209,9 +209,10 @@
 {% block extra_js %}
 <script>
     // Global state
-    let currentPage = 1;
+    const initialView = new URLSearchParams(window.location.search);
+    let currentPage = Math.max(1, Number.parseInt(initialView.get('page') || '1', 10) || 1);
     let totalPages = 1;
-    let showingArchived = false;
+    let showingArchived = initialView.get('archived') === '1';
     const perPage = 20;
 
     // DOM Elements
@@ -226,6 +227,13 @@
 
     // Load reports and stats on page load
     document.addEventListener('DOMContentLoaded', () => {
+        for (const [parameter, inputId] of Object.entries({type:'filterType', status:'filterStatus', date_from:'filterDateFrom', date_to:'filterDateTo', search:'filterSearch'{% if current_user.is_admin() %}, user_search:'filterUserSearch'{% endif %}})) {
+            document.getElementById(inputId).value = initialView.get(parameter) || '';
+        }
+        document.getElementById('advancedFilters').open = ['type','status','date_from','date_to'{% if current_user.is_admin() %},'user_search'{% endif %}].some(key => initialView.has(key));
+        if (showingArchived) updateQuickFilterState('archived');
+        else if (initialView.get('type')) updateQuickFilterState(initialView.get('type'));
+        else updateQuickFilterState('all');
         loadReports();
         loadStats();
         checkOfflineReports();
@@ -303,7 +311,7 @@
     });
 
     // Export monthly report (current user)
-    document.getElementById('exportMineBtn').addEventListener('click', () => {
+    document.getElementById('exportMineBtn')?.addEventListener('click', () => {
         const type = document.getElementById('filterType').value;
         const dateFrom = document.getElementById('filterDateFrom').value;
         const dateTo = document.getElementById('filterDateTo').value;
@@ -394,17 +402,30 @@
         if (userSearch) params.append('user_search', userSearch);
         {% endif %}
 
+        const viewParams = new URLSearchParams(params);
+        viewParams.delete('per_page');
+        window.history.replaceState({dashboard: true}, '', `${window.location.pathname}?${viewParams}`);
+
         try {
             const response = await fetch(`/api/reports?${params}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
 
             totalPages = data.pages;
+            if (currentPage > totalPages && totalPages > 0) {
+                currentPage = totalPages;
+                return loadReports();
+            }
             renderReports(data.reports);
             updatePagination(data.total, data.pages, data.current_page);
             resultSummary.textContent = showingArchived
                 ? (data.total === 1 ? 'דוח אחד בארכיון' : `${data.total} דוחות בארכיון`)
                 : (data.total === 1 ? 'נמצא דוח אחד' : `${data.total} דוחות נמצאו`);
+            const savedScroll = JSON.parse(sessionStorage.getItem('proshieldDashboardScroll') || 'null');
+            if (savedScroll?.url === window.location.search) {
+                sessionStorage.removeItem('proshieldDashboardScroll');
+                window.scrollTo(0, savedScroll.y);
+            }
 
         } catch (error) {
             console.error('Error loading reports:', error);
@@ -434,7 +455,7 @@
 
         reportsList.innerHTML = reports.map(report => `
             <div class="report-card-wrapper ${report.is_archived ? 'is-archived' : ''}">
-                <a href="/report/${report.id}" class="report-card">
+                <a href="/report/${report.id}?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}" class="report-card">
                     <div class="report-card-header">
                         <span class="report-type ${report.report_type}">
                             ${report.report_type === 'delivery' ? 'אספקה' : 'התקנה'}
@@ -469,11 +490,15 @@
                 ${report.can_manage ? '<div class="report-card-actions">' : ''}
                     ${report.can_manage ? (report.is_archived
                         ? `<button class="btn-card-action btn-restore-action" data-report-id="${report.id}" aria-label="שחזר דוח ${report.id}" title="שחזר">↩</button>`
-                        : `<a href="/report/${report.id}/edit" class="btn-card-action btn-edit-action" aria-label="ערוך דוח ${report.id}" title="ערוך">✏️</a>
+                        : `<a href="/report/${report.id}/edit?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}" class="btn-card-action btn-edit-action" aria-label="ערוך דוח ${report.id}" title="ערוך">✏️</a>
                            <button class="btn-card-action btn-delete-action" data-report-id="${report.id}" aria-label="העבר דוח ${report.id} לארכיון" title="העבר לארכיון">▤</button>`) : ''}
                 ${report.can_manage ? '</div>' : ''}
             </div>
         `).join('');
+
+        reportsList.querySelectorAll('.report-card, .btn-edit-action').forEach(link => link.addEventListener('click', () => {
+            sessionStorage.setItem('proshieldDashboardScroll', JSON.stringify({url: window.location.search, y: window.scrollY}));
+        }));
 
         // Attach delete handlers
         document.querySelectorAll('.btn-delete-action').forEach(btn => {

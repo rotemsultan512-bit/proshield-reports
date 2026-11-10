@@ -7,7 +7,7 @@
     <div class="inventory-hero">
         <div class="inventory-hero-text">
             <h1>מלאי מחסן</h1>
-            <p>עדכון כמויות לאחר ספירה בשטח או במחסן</p>
+            <p>כל מוצר מוצג לפי יחידת המדידה שלו. יתרת „מטר” הישנה נשמרת בנפרד.</p>
         </div>
         <div class="inventory-hero-actions">
             <button class="btn btn-secondary" id="exportInventoryBtn">יצוא מלאי</button>
@@ -25,8 +25,8 @@
             <div class="kpi-value" id="kpiTotalUnits">-</div>
         </div>
         <div class="inventory-kpi">
-            <div class="kpi-label">סה"כ מטרים</div>
-            <div class="kpi-value" id="kpiTotalMeters">-</div>
+            <div class="kpi-label">מוצרים ביתרה שלילית</div>
+            <div class="kpi-value" id="kpiNegativeItems">-</div>
         </div>
         <div class="inventory-kpi">
             <div class="kpi-label">פריטים ריקים</div>
@@ -45,7 +45,6 @@
     </div>
 
     <div class="inventory-table">
-        <div class="inventory-header" aria-hidden="true"><span>מוצר</span><span>יחידות</span><span>מטרים</span><span>עודכן</span></div>
         <div class="inventory-rows" id="inventoryRows"></div>
     </div>
 </div>
@@ -56,6 +55,8 @@
     let inventoryItems = [];
     const changedInventoryNames = new Set();
     const originalInventoryValues = new Map();
+    const inventoryFields = ['quantity_unit', 'quantity_sqm', 'quantity_linear_meter', 'quantity_meter'];
+    const inventoryLabels = {quantity_unit:'יח׳', quantity_sqm:'מ״ר', quantity_linear_meter:'מ״א', quantity_meter:'מטר'};
 
     document.addEventListener('DOMContentLoaded', () => {
         loadInventory();
@@ -69,7 +70,9 @@
             originalInventoryValues.clear();
             inventoryItems.forEach(item => originalInventoryValues.set(item.product_name, {
                 quantity_unit: Number(item.quantity_unit) || 0,
-                quantity_meter: Number(item.quantity_meter) || 0
+                quantity_meter: Number(item.quantity_meter) || 0,
+                quantity_sqm: Number(item.quantity_sqm) || 0,
+                quantity_linear_meter: Number(item.quantity_linear_meter) || 0
             }));
             changedInventoryNames.clear();
             renderInventory();
@@ -90,12 +93,12 @@
     function updateInventoryStats(items) {
         const totalItems = items.length;
         const totalUnits = items.reduce((sum, item) => sum + (Number(item.quantity_unit) || 0), 0);
-        const totalMeters = items.reduce((sum, item) => sum + (Number(item.quantity_meter) || 0), 0);
-        const emptyItems = items.filter(i => (Number(i.quantity_unit) || 0) === 0 && (Number(i.quantity_meter) || 0) === 0).length;
+        const negativeItems = items.filter(i => inventoryFields.some(field => Number(i[field]) < 0)).length;
+        const emptyItems = items.filter(i => inventoryFields.every(field => Number(i[field]) === 0)).length;
 
         document.getElementById('kpiTotalItems').textContent = totalItems;
         document.getElementById('kpiTotalUnits').textContent = totalUnits.toFixed(1);
-        document.getElementById('kpiTotalMeters').textContent = totalMeters.toFixed(1);
+        document.getElementById('kpiNegativeItems').textContent = negativeItems;
         document.getElementById('kpiEmptyItems').textContent = emptyItems;
     }
 
@@ -106,7 +109,7 @@
         const negativeOnly = document.getElementById('negativeOnly').checked;
         const items = inventoryItems.filter(item =>
             item.product_name.toLowerCase().includes(term) &&
-            (!negativeOnly || Number(item.quantity_unit) < 0 || Number(item.quantity_meter) < 0)
+            (!negativeOnly || inventoryFields.some(field => Number(item[field]) < 0))
         );
 
         if (items.length === 0) {
@@ -115,17 +118,13 @@
         }
 
         container.innerHTML = items.map(item => `
-            <div class="inventory-row ${changedInventoryNames.has(item.product_name) ? 'is-edited' : ''} ${Number(item.quantity_unit) < 0 || Number(item.quantity_meter) < 0 ? 'has-negative-balance' : ''}" data-id="${item.id}">
-                <div class="inventory-cell inventory-name">${escapeHtml(item.product_name)}</div>
-                <div class="inventory-cell">
-                    <label class="sr-only" for="unit-${item.id}">יחידות — ${escapeHtml(item.product_name)}</label>
-                    <input type="number" step="0.1" id="unit-${item.id}" class="inventory-input" data-unit="unit" value="${item.quantity_unit ?? 0}" dir="ltr">
-                </div>
-                <div class="inventory-cell">
-                    <label class="sr-only" for="meter-${item.id}">מטרים — ${escapeHtml(item.product_name)}</label>
-                    <input type="number" step="0.1" id="meter-${item.id}" class="inventory-input" data-unit="meter" value="${item.quantity_meter ?? 0}" dir="ltr">
-                </div>
-                <div class="inventory-cell inventory-updated">${item.updated_at ? formatDate(item.updated_at) : '-'}</div>
+            <div class="inventory-row ${changedInventoryNames.has(item.product_name) ? 'is-edited' : ''} ${inventoryFields.some(field => Number(item[field]) < 0) ? 'has-negative-balance' : ''}" data-id="${item.id}">
+                <div class="inventory-row-title"><strong>${escapeHtml(item.product_name)}</strong><small>עודכן ${item.updated_at ? formatDate(item.updated_at) : 'לא ידוע'}</small></div>
+                <div class="inventory-balances">${inventoryFields.map(field => `
+                    <div class="inventory-cell ${Number(item[field]) < 0 ? 'is-negative' : ''}">
+                        <label for="${field}-${item.id}">${inventoryLabels[field]}</label>
+                        <input type="number" step="0.1" id="${field}-${item.id}" class="inventory-input" data-field="${field}" value="${item[field] ?? 0}" dir="ltr">
+                    </div>`).join('')}</div>
             </div>
         `).join('');
     }
@@ -142,9 +141,9 @@
         const row = input.closest('.inventory-row');
         const item = inventoryItems.find(i => i.id === Number(row.dataset.id));
         if (!item) return;
-        item[input.dataset.unit === 'unit' ? 'quantity_unit' : 'quantity_meter'] = input.value;
+        item[input.dataset.field] = input.value;
         const original = originalInventoryValues.get(item.product_name);
-        const isChanged = Number(item.quantity_unit) !== original.quantity_unit || Number(item.quantity_meter) !== original.quantity_meter;
+        const isChanged = inventoryFields.some(field => Number(item[field]) !== original[field]);
         if (isChanged) changedInventoryNames.add(item.product_name);
         else changedInventoryNames.delete(item.product_name);
         row.classList.toggle('is-edited', isChanged);
@@ -157,11 +156,10 @@
     document.getElementById('saveInventoryBtn')?.addEventListener('click', async () => {
         const payload = inventoryItems.filter(item => changedInventoryNames.has(item.product_name)).map(item => ({
             product_name: item.product_name,
-            quantity_unit: item.quantity_unit,
-            quantity_meter: item.quantity_meter
+            ...Object.fromEntries(inventoryFields.map(field => [field, item[field]]))
         }));
         if (!payload.length) return;
-        if (payload.some(item => item.quantity_unit === '' || item.quantity_meter === '')) {
+        if (payload.some(item => inventoryFields.some(field => item[field] === '' || !Number.isFinite(Number(item[field]))))) {
             showToast('יש להזין מספר בכל שדה ששונה', 'error');
             return;
         }

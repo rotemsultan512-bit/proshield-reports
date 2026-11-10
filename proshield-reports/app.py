@@ -40,6 +40,12 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'יש להתחבר כדי לגשת לעמוד זה'
 
+REPORT_UNITS = {'unit': 'יח׳', 'meter': 'מטר', 'sqm': 'מ״ר', 'linear_meter': 'מ״א'}
+INVENTORY_UNIT_FIELDS = {
+    'unit': 'quantity_unit', 'meter': 'quantity_meter',
+    'sqm': 'quantity_sqm', 'linear_meter': 'quantity_linear_meter',
+}
+
 
 @app.after_request
 def prevent_private_response_caching(response):
@@ -131,6 +137,16 @@ def own_or_shared_reports(user_id):
     return Report.query.filter(or_(Report.user_id == user_id,
                                    Report.additional_workers.any(User.id == user_id)))
 
+
+def safe_return_url(default_endpoint='dashboard'):
+    """Accept only local relative navigation targets supplied by report links."""
+    target = request.args.get('return_to', '')
+    parsed = urlparse(target)
+    if (not target.startswith('/') or target.startswith('//') or '\\' in target or
+            any(ord(char) < 32 for char in target) or parsed.scheme or parsed.netloc):
+        return url_for(default_endpoint)
+    return target
+
 def init_db():
     """Initialize the schema and inventory catalog.
 
@@ -208,9 +224,16 @@ def init_db():
                         product_name VARCHAR(200) UNIQUE NOT NULL,
                         quantity_unit FLOAT DEFAULT 0,
                         quantity_meter FLOAT DEFAULT 0,
+                        quantity_sqm FLOAT DEFAULT 0,
+                        quantity_linear_meter FLOAT DEFAULT 0,
                         updated_at DATETIME
                     )
                 '''))
+                inventory_columns = {row[1] for row in db.session.execute(text('PRAGMA table_info(inventory_items)'))}
+                if 'quantity_sqm' not in inventory_columns:
+                    db.session.execute(text('ALTER TABLE inventory_items ADD COLUMN quantity_sqm FLOAT DEFAULT 0'))
+                if 'quantity_linear_meter' not in inventory_columns:
+                    db.session.execute(text('ALTER TABLE inventory_items ADD COLUMN quantity_linear_meter FLOAT DEFAULT 0'))
                 db.session.execute(text('''
                     CREATE TABLE IF NOT EXISTS inventory_transactions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,9 +298,13 @@ def init_db():
                         product_name VARCHAR(200) UNIQUE NOT NULL,
                         quantity_unit DOUBLE PRECISION DEFAULT 0,
                         quantity_meter DOUBLE PRECISION DEFAULT 0,
+                        quantity_sqm DOUBLE PRECISION DEFAULT 0,
+                        quantity_linear_meter DOUBLE PRECISION DEFAULT 0,
                         updated_at TIMESTAMP
                     )
                 '''))
+                db.session.execute(text('ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS quantity_sqm DOUBLE PRECISION DEFAULT 0'))
+                db.session.execute(text('ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS quantity_linear_meter DOUBLE PRECISION DEFAULT 0'))
                 db.session.execute(text('''
                     CREATE TABLE IF NOT EXISTS inventory_transactions (
                         id SERIAL PRIMARY KEY,
@@ -369,7 +396,7 @@ def parse_products(raw):
         except (TypeError, ValueError) as exc:
             raise ValueError('כמות מוצר לא תקינה') from exc
         unit = product.get('unit') or 'unit'
-        if not name or not math.isfinite(quantity) or quantity <= 0 or unit not in ('unit', 'meter'):
+        if not name or not math.isfinite(quantity) or quantity <= 0 or unit not in REPORT_UNITS:
             raise ValueError('פרטי מוצר לא תקינים')
         normalized.append({'name': name, 'quantity': quantity, 'unit': unit})
     return normalized
@@ -439,8 +466,8 @@ def save_file(file, report_id, file_type='image'):
 
 def apply_inventory_change(product_name, quantity, unit, change_type, report_id=None, user_id=None, notes=None):
     """Apply inventory change and record transaction. Allows negative stock."""
-    if unit not in ['unit', 'meter']:
-        unit = 'unit'
+    if unit not in INVENTORY_UNIT_FIELDS:
+        raise ValueError('יחידת מידה לא תקינה')
 
     item = InventoryItem.query.filter_by(product_name=product_name).first()
     if not item:
@@ -448,10 +475,8 @@ def apply_inventory_change(product_name, quantity, unit, change_type, report_id=
         db.session.add(item)
         db.session.flush()
 
-    if unit == 'meter':
-        item.quantity_meter = (item.quantity_meter or 0) + float(quantity)
-    else:
-        item.quantity_unit = (item.quantity_unit or 0) + float(quantity)
+    field = INVENTORY_UNIT_FIELDS[unit]
+    setattr(item, field, (getattr(item, field) or 0) + float(quantity))
 
     tx = InventoryTransaction(
         product_name=product_name,
@@ -601,6 +626,7 @@ def view_report(report_id):
     return render_template(
         'view_report.html',
         report=report,
+        return_url=safe_return_url(),
         can_manage=current_user.is_admin() or report.user_id == current_user.id,
         available_images=available_images,
         missing_image_count=len(images) - len(available_images),
@@ -997,6 +1023,7 @@ def edit_report(report_id):
                       .order_by(User.full_name).all())
     return render_template('new_report.html', products=PRODUCTS, edit_mode=True,
                            report_id=report.id, signed_notes=signed_notes,
+                           return_url=url_for('view_report', report_id=report.id, return_to=safe_return_url()),
                            worker_options=worker_options,
                            selected_note_id=existing_signed_note.id if existing_signed_note else None)
 
@@ -1175,6 +1202,28 @@ def inventory_page():
         return redirect(url_for('dashboard'))
     return render_template('inventory.html')
 
+
+@app.route('/company-projects/<int:project_id>')
+@login_required
+def company_project_detail(project_id):
+    if not current_user.is_admin():
+        flash('אין לך הרשאה לגשת לעמוד זה', 'error')
+        return redirect(url_for('dashboard'))
+    project = CompanyProject.query.get_or_404(project_id)
+    reports = (Report.query.filter(Report.company_project == project.name)
+               .order_by(Report.timestamp.desc()).all())
+    notes = (DeliveryNote.query.filter(DeliveryNote.company_project == project.name)
+             .order_by(DeliveryNote.created_at.desc()).all())
+    product_totals = {}
+    for report in reports:
+        for product in report.products:
+            key = (product.product_name, product.quantity_unit or 'unit', report.report_type)
+            product_totals[key] = product_totals.get(key, 0) + product.quantity
+    return render_template('company_project.html', project=project, reports=reports,
+                           notes=notes, product_totals=sorted(product_totals.items()),
+                           unit_labels=REPORT_UNITS,
+                           return_url=safe_return_url('admin_dashboard'))
+
 # ============ API ROUTES ============
 
 @app.route('/api/reports', methods=['GET'])
@@ -1318,7 +1367,7 @@ def create_report():
         if len(address) > 500 or len(customer_name) > 200 or len(company_project) > 200 or len(recipient_name) > 200:
             return jsonify({'success': False, 'error': 'אחד השדות ארוך מדי'}), 400
 
-        if not customer_name:
+        if report_type == 'installation' and not customer_name:
             return jsonify({'success': False, 'error': 'יש להזין שם לקוח'}), 400
 
         # Parse report date/time
@@ -1427,8 +1476,8 @@ def create_report():
         for product in products_data:
             if product.get('name') and product.get('quantity'):
                 unit = product.get('unit') or 'unit'
-                if unit not in ['unit', 'meter']:
-                    unit = 'unit'
+                if unit not in REPORT_UNITS:
+                    return jsonify({'success': False, 'error': 'יחידת מידה לא תקינה'}), 400
 
                 report_product = ReportProduct(
                     report_id=report.id,
@@ -1559,7 +1608,7 @@ def update_report(report_id):
         if len(address) > 500 or len(customer_name) > 200 or len(company_project) > 200 or len(recipient_name) > 200:
             return jsonify({'success': False, 'error': 'אחד השדות ארוך מדי'}), 400
 
-        if not customer_name:
+        if report_type == 'installation' and not customer_name:
             return jsonify({'success': False, 'error': 'יש להזין שם לקוח'}), 400
 
         # Parse report date/time
@@ -1681,8 +1730,8 @@ def update_report(report_id):
         for product in products_data:
             if product.get('name') and product.get('quantity'):
                 unit = product.get('unit') or 'unit'
-                if unit not in ['unit', 'meter']:
-                    unit = 'unit'
+                if unit not in REPORT_UNITS:
+                    return jsonify({'success': False, 'error': 'יחידת מידה לא תקינה'}), 400
 
                 report_product = ReportProduct(
                     report_id=report.id,
@@ -2116,44 +2165,34 @@ def adjust_inventory():
 
     try:
         for item in items:
+            if not isinstance(item, dict):
+                raise ValueError('נתוני מוצר לא תקינים')
             product_name = (item.get('product_name') or '').strip()
             if not product_name:
                 continue
-
-            target_unit = float(item.get('quantity_unit') or 0)
-            target_meter = float(item.get('quantity_meter') or 0)
 
             inv = InventoryItem.query.filter_by(product_name=product_name).first()
             if not inv:
                 inv = InventoryItem(product_name=product_name, quantity_unit=0, quantity_meter=0)
                 db.session.add(inv)
                 db.session.flush()
-
-            delta_unit = target_unit - (inv.quantity_unit or 0)
-            delta_meter = target_meter - (inv.quantity_meter or 0)
-
-            if delta_unit != 0:
-                apply_inventory_change(
-                    product_name=product_name,
-                    quantity=delta_unit,
-                    unit='unit',
-                    change_type='adjustment',
-                    user_id=current_user.id,
-                    notes='Manual adjustment'
-                )
-
-            if delta_meter != 0:
-                apply_inventory_change(
-                    product_name=product_name,
-                    quantity=delta_meter,
-                    unit='meter',
-                    change_type='adjustment',
-                    user_id=current_user.id,
-                    notes='Manual adjustment'
-                )
+            for unit, field in INVENTORY_UNIT_FIELDS.items():
+                if field not in item:
+                    continue  # Older clients must not reset balances for newly added units.
+                target = float(item[field])
+                if not math.isfinite(target):
+                    raise ValueError('כמות מלאי לא תקינה')
+                delta = target - (getattr(inv, field) or 0)
+                if delta:
+                    apply_inventory_change(product_name=product_name, quantity=delta, unit=unit,
+                                           change_type='adjustment', user_id=current_user.id,
+                                           notes='Manual adjustment')
 
         db.session.commit()
         return jsonify({'success': True})
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2168,11 +2207,13 @@ def _export_inventory_to_excel(items, transactions):
     ws_items = wb.active
     ws_items.title = "מלאי"
 
-    ws_items.append(['מוצר', 'כמות יחידה', 'כמות מטר', 'עודכן לאחרונה'])
+    ws_items.append(['מוצר', 'יח׳', 'מ״ר', 'מ״א', 'מטר', 'עודכן לאחרונה'])
     for item in items:
         ws_items.append([
             item.product_name,
             item.quantity_unit or 0,
+            item.quantity_sqm or 0,
+            item.quantity_linear_meter or 0,
             item.quantity_meter or 0,
             item.updated_at.strftime('%d/%m/%Y %H:%M') if item.updated_at else ''
         ])
@@ -2184,7 +2225,7 @@ def _export_inventory_to_excel(items, transactions):
             tx.product_name,
             tx.change_type,
             tx.quantity,
-            'יח׳' if tx.unit == 'unit' else 'מ׳',
+            REPORT_UNITS.get(tx.unit, tx.unit),
             tx.report_id or '',
             tx.user_id or '',
             tx.notes or '',
@@ -2254,271 +2295,8 @@ def get_stats():
     })
 
 def _export_reports_to_excel(reports, filename_prefix, report_owner=None):
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-    from io import BytesIO
-    from flask import send_file
-    from collections import defaultdict
-
-    wb = Workbook()
-
-    # ---- Sheet 1: Detailed Reports ----
-    ws = wb.active
-    ws.title = "דוחות מפורטים"
-    ws.sheet_view.rightToLeft = True
-
-    # Styles
-    header_font = Font(name='Arial', bold=True, size=11, color='FFFFFF')
-    header_fill = PatternFill(start_color='2563EB', end_color='2563EB', fill_type='solid')
-    header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    cell_alignment = Alignment(horizontal='right', vertical='center', wrap_text=True)
-    number_alignment = Alignment(horizontal='center', vertical='center')
-    thin_border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    bold_font = Font(name='Arial', bold=True, size=11)
-    title_font = Font(name='Arial', bold=True, size=14)
-    subtitle_font = Font(name='Arial', bold=True, size=11, color='555555')
-
-    # Title row
-    ws.merge_cells('A1:L1')
-    title_cell = ws['A1']
-    title_cell.value = 'דוח עבודה מפורט'
-    title_cell.font = title_font
-    title_cell.alignment = Alignment(horizontal='center', vertical='center')
-
-    # Subtitle with user name and date range
-    ws.merge_cells('A2:L2')
-    subtitle_cell = ws['A2']
-    user_name = report_owner.full_name if report_owner else (
-        reports[0].author.full_name if reports and reports[0].author else '')
-    if reports:
-        dates = [r.timestamp for r in reports if r.timestamp]
-        if dates:
-            min_date = min(dates).strftime('%d/%m/%Y')
-            max_date = max(dates).strftime('%d/%m/%Y')
-            subtitle_cell.value = f'עובד: {user_name} | תקופה: {min_date} - {max_date} | סה"כ דיווחים: {len(reports)}'
-        else:
-            subtitle_cell.value = f'עובד: {user_name} | סה"כ דיווחים: {len(reports)}'
-    subtitle_cell.font = subtitle_font
-    subtitle_cell.alignment = Alignment(horizontal='center', vertical='center')
-
-    # Headers (row 4)
-    headers = [
-        'תאריך',
-        'שעה',
-        'סוג דוח',
-        'שם לקוח',
-        'חברת בניה/פרויקט',
-        'כתובת',
-        'מוצר',
-        'כמות',
-        'יחידת מידה',
-        'סטטוס',
-        'הערות',
-        'עובדים נוספים'
-    ]
-
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=4, column=col_idx, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_alignment
-        cell.border = thin_border
-
-    # Data rows - one row per product
-    row_num = 5
-    total_meter = defaultdict(float)
-    total_unit = defaultdict(float)
-
-    # Sort reports by date
-    sorted_reports = sorted(reports, key=lambda r: r.timestamp or datetime.min)
-
-    for report in sorted_reports:
-        products_list = list(report.products)
-        if not products_list:
-            # Report with no products - still show one row
-            for col_idx, val in enumerate([
-                report.timestamp.strftime('%d/%m/%Y') if report.timestamp else '',
-                report.timestamp.strftime('%H:%M') if report.timestamp else '',
-                'אספקה' if report.report_type == 'delivery' else 'התקנה',
-                report.customer_name or '',
-                report.company_project or '',
-                report.address or '',
-                '',
-                '',
-                '',
-                'הושלם' if report.status == 'completed' else 'נדרש חזרה',
-                report.notes or '',
-                report.additional_worker_name or '' if report.report_type == 'installation' else ''
-            ], 1):
-                cell = ws.cell(row=row_num, column=col_idx, value=val)
-                cell.alignment = cell_alignment if col_idx not in [8] else number_alignment
-                cell.border = thin_border
-            row_num += 1
-        else:
-            for p_idx, product in enumerate(products_list):
-                unit_label = 'מטר' if product.quantity_unit == 'meter' else 'יחידה'
-
-                # Track totals
-                if product.quantity_unit == 'meter':
-                    total_meter[product.product_name] += product.quantity
-                else:
-                    total_unit[product.product_name] += product.quantity
-
-                row_data = [
-                    report.timestamp.strftime('%d/%m/%Y') if report.timestamp else '',
-                    report.timestamp.strftime('%H:%M') if report.timestamp else '',
-                    'אספקה' if report.report_type == 'delivery' else 'התקנה',
-                    report.customer_name or '',
-                    report.company_project or '',
-                    report.address or '',
-                    product.product_name,
-                    product.quantity,
-                    unit_label,
-                    'הושלם' if report.status == 'completed' else 'נדרש חזרה',
-                    report.notes or '' if p_idx == 0 else '',
-                    report.additional_worker_name or '' if report.report_type == 'installation' else ''
-                ]
-
-                for col_idx, val in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_num, column=col_idx, value=val)
-                    cell.alignment = cell_alignment if col_idx not in [8] else number_alignment
-                    cell.border = thin_border
-
-                row_num += 1
-
-    # ---- Summary section ----
-    row_num += 1
-    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=9)
-    summary_title = ws.cell(row=row_num, column=1, value='סיכום כמויות')
-    summary_title.font = Font(name='Arial', bold=True, size=12)
-    summary_title.alignment = Alignment(horizontal='center', vertical='center')
-    summary_title.fill = PatternFill(start_color='F59E0B', end_color='F59E0B', fill_type='solid')
-    summary_title.font = Font(name='Arial', bold=True, size=12, color='FFFFFF')
-
-    row_num += 1
-    # Summary headers
-    for col_idx, header in enumerate(['מוצר', 'סה"כ מטר', 'סה"כ יחידות'], 1):
-        cell = ws.cell(row=row_num, column=col_idx, value=header)
-        cell.font = bold_font
-        cell.alignment = header_alignment
-        cell.border = thin_border
-        cell.fill = PatternFill(start_color='FEF3C7', end_color='FEF3C7', fill_type='solid')
-
-    row_num += 1
-    all_products = set(list(total_meter.keys()) + list(total_unit.keys()))
-    grand_total_meter = 0
-    grand_total_unit = 0
-
-    for product_name in sorted(all_products):
-        meters = total_meter.get(product_name, 0)
-        units = total_unit.get(product_name, 0)
-        grand_total_meter += meters
-        grand_total_unit += units
-
-        cell_name = ws.cell(row=row_num, column=1, value=product_name)
-        cell_name.alignment = cell_alignment
-        cell_name.border = thin_border
-
-        cell_meter = ws.cell(row=row_num, column=2, value=meters if meters else '')
-        cell_meter.alignment = number_alignment
-        cell_meter.border = thin_border
-
-        cell_units = ws.cell(row=row_num, column=3, value=units if units else '')
-        cell_units.alignment = number_alignment
-        cell_units.border = thin_border
-
-        row_num += 1
-
-    # Grand total row
-    grand_fill = PatternFill(start_color='DBEAFE', end_color='DBEAFE', fill_type='solid')
-    cell_total_label = ws.cell(row=row_num, column=1, value='סה"כ כללי')
-    cell_total_label.font = bold_font
-    cell_total_label.alignment = cell_alignment
-    cell_total_label.border = thin_border
-    cell_total_label.fill = grand_fill
-
-    cell_total_meter = ws.cell(row=row_num, column=2, value=grand_total_meter if grand_total_meter else '')
-    cell_total_meter.font = bold_font
-    cell_total_meter.alignment = number_alignment
-    cell_total_meter.border = thin_border
-    cell_total_meter.fill = grand_fill
-
-    cell_total_unit = ws.cell(row=row_num, column=3, value=grand_total_unit if grand_total_unit else '')
-    cell_total_unit.font = bold_font
-    cell_total_unit.alignment = number_alignment
-    cell_total_unit.border = thin_border
-    cell_total_unit.fill = grand_fill
-
-    # Column widths
-    col_widths = [14, 8, 10, 18, 22, 28, 28, 10, 12, 12, 20, 28]
-    for i, width in enumerate(col_widths, 1):
-        ws.column_dimensions[chr(64 + i)].width = width
-
-    # ---- Sheet 2: Daily Summary ----
-    ws2 = wb.create_sheet(title="סיכום יומי")
-    ws2.sheet_view.rightToLeft = True
-
-    ws2.merge_cells('A1:E1')
-    ws2['A1'].value = 'סיכום יומי'
-    ws2['A1'].font = title_font
-    ws2['A1'].alignment = Alignment(horizontal='center', vertical='center')
-
-    daily_headers = ['תאריך', 'מספר דיווחים', 'אספקה', 'התקנה', 'פירוט']
-    for col_idx, header in enumerate(daily_headers, 1):
-        cell = ws2.cell(row=3, column=col_idx, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_alignment
-        cell.border = thin_border
-
-    # Group by date
-    daily_data = defaultdict(lambda: {'count': 0, 'delivery': 0, 'installation': 0, 'details': []})
-    for report in sorted_reports:
-        if report.timestamp:
-            date_key = report.timestamp.strftime('%d/%m/%Y')
-            daily_data[date_key]['count'] += 1
-            if report.report_type == 'delivery':
-                daily_data[date_key]['delivery'] += 1
-            else:
-                daily_data[date_key]['installation'] += 1
-            daily_data[date_key]['details'].append(
-                f"{report.customer_name or ''} - {report.address or ''}"
-            )
-
-    row_num2 = 4
-    for date_key in sorted(daily_data.keys(), key=lambda d: datetime.strptime(d, '%d/%m/%Y')):
-        data = daily_data[date_key]
-        details_str = ' | '.join(data['details'])
-
-        row_data = [date_key, data['count'], data['delivery'], data['installation'], details_str]
-        for col_idx, val in enumerate(row_data, 1):
-            cell = ws2.cell(row=row_num2, column=col_idx, value=val)
-            cell.alignment = cell_alignment if col_idx == 5 else number_alignment
-            cell.border = thin_border
-        row_num2 += 1
-
-    ws2.column_dimensions['A'].width = 14
-    ws2.column_dimensions['B'].width = 14
-    ws2.column_dimensions['C'].width = 10
-    ws2.column_dimensions['D'].width = 10
-    ws2.column_dimensions['E'].width = 50
-
-    # Save to bytes
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=f'{filename_prefix}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-    )
+    from report_export import export_reports_to_excel
+    return export_reports_to_excel(reports, filename_prefix, report_owner, REPORT_UNITS)
 
 
 @app.route('/api/export')
@@ -2609,7 +2387,7 @@ def sync_offline_reports():
             address = str(report_data.get('address') or '').strip()
             customer_name = str(report_data.get('customer_name') or '').strip()
             status = report_data.get('status')
-            if offline_type not in ('delivery', 'installation') or not address or not customer_name or not status:
+            if offline_type not in ('delivery', 'installation') or not address or (offline_type == 'installation' and not customer_name) or not status:
                 raise ValueError('חסרים פרטי דוח נדרשים')
 
             products = report_data.get('products')
@@ -2623,7 +2401,7 @@ def sync_offline_reports():
                 if not math.isfinite(quantity) or quantity <= 0:
                     raise ValueError('כמות מוצר לא תקינה')
                 unit = product.get('unit') or 'unit'
-                if unit not in ('unit', 'meter'):
+                if unit not in REPORT_UNITS:
                     raise ValueError('יחידת מוצר לא תקינה')
                 validated_products.append((str(product['name']).strip(), quantity, unit))
 

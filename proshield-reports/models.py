@@ -186,7 +186,7 @@ class ReportProduct(db.Model):
     report_id = db.Column(db.Integer, db.ForeignKey('reports.id'), nullable=False)
     product_name = db.Column(db.String(200), nullable=False)
     quantity = db.Column(db.Float, nullable=False)
-    quantity_unit = db.Column(db.String(20), default='unit')  # 'unit' or 'meter'
+    quantity_unit = db.Column(db.String(20), default='unit')  # unit, legacy meter, sqm, linear_meter
 
     def to_dict(self):
         return {
@@ -265,7 +265,9 @@ class InventoryItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     product_name = db.Column(db.String(200), unique=True, nullable=False)
     quantity_unit = db.Column(db.Float, default=0)   # יחידה
-    quantity_meter = db.Column(db.Float, default=0)  # מטר
+    quantity_meter = db.Column(db.Float, default=0)  # legacy metres; never reclassified
+    quantity_sqm = db.Column(db.Float, default=0)  # square metres
+    quantity_linear_meter = db.Column(db.Float, default=0)  # running metres
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -274,6 +276,8 @@ class InventoryItem(db.Model):
             'product_name': self.product_name,
             'quantity_unit': self.quantity_unit,
             'quantity_meter': self.quantity_meter,
+            'quantity_sqm': self.quantity_sqm,
+            'quantity_linear_meter': self.quantity_linear_meter,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
@@ -288,7 +292,7 @@ class InventoryTransaction(db.Model):
     product_name = db.Column(db.String(200), nullable=False)
     change_type = db.Column(db.String(50), nullable=False)  # 'report' or 'adjustment'
     quantity = db.Column(db.Float, nullable=False)
-    unit = db.Column(db.String(20), nullable=False)  # 'unit' or 'meter'
+    unit = db.Column(db.String(20), nullable=False)  # unit, legacy meter, sqm, linear_meter
     report_id = db.Column(db.Integer, db.ForeignKey('reports.id'))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     notes = db.Column(db.String(500))
