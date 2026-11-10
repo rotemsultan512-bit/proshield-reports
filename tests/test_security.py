@@ -726,8 +726,8 @@ class SecurityTests(unittest.TestCase):
             assigned = admin.get(f'/api/reports?user_id={worker_id}').json['reports']
             self.assertEqual(sum(r['id'] == report_id for r in assigned), 1)
             monthly = admin.get(f'/api/export?user_id={worker_id}&date_from=2026-11-01&date_to=2026-11-30')
-            sheet = load_workbook(BytesIO(monthly.data), read_only=True)['דוחות מפורטים']
-            self.assertEqual(sum(len(row) > 5 and row[5] == 'Team Street 7'
+            sheet = load_workbook(BytesIO(monthly.data), read_only=True)['דוחות להדפסה']
+            self.assertEqual(sum(len(row) > 2 and 'Team Street 7' in str(row[2])
                                  for row in sheet.iter_rows(min_row=5, values_only=True)), 1)
         counts = {row['user_id']: row['count'] for row in admin.get('/api/stats').json['reports_per_user']}
         self.assertEqual(counts[self.other_id], 1)
@@ -741,13 +741,13 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual(person.get(f'/report/{report_id}/edit').status_code, 302)
             export = person.get('/api/export/mine?date_from=2026-11-01&date_to=2026-11-30')
             workbook = load_workbook(BytesIO(export.data), read_only=True)
-            sheet = workbook['דוחות מפורטים']
+            sheet = workbook['דוחות להדפסה']
             team_rows = [row for row in sheet.iter_rows(min_row=5, values_only=True)
-                         if len(row) > 11 and row[5] == 'Team Street 7']
+                         if len(row) > 2 and 'Team Street 7' in str(row[2])]
             self.assertEqual(len(team_rows), 1)
-            self.assertIn('Helper Installer', team_rows[0][11])
-            self.assertIn('Other', team_rows[0][11])
-            self.assertIn(f'עובד: {expected_name}', str(sheet['A2'].value))
+            self.assertIn('Helper Installer', team_rows[0][4])
+            self.assertIn('Other', team_rows[0][4])
+            self.assertIn(expected_name, str(sheet['A2'].value))
         self.assertEqual(coworker.delete(f'/api/reports/{report_id}',
             headers={'X-CSRFToken': self.csrf_for(coworker)}).status_code, 403)
         self.assertEqual(stranger_client.get(f'/api/reports/{report_id}').status_code, 403)
@@ -757,6 +757,79 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(revised.status_code, 200, revised.json)
         self.assertEqual(coworker.get(f'/api/reports/{report_id}').status_code, 403)
         self.assertEqual(helper_client.get(f'/api/reports/{report_id}').status_code, 200)
+
+    def test_optional_delivery_customer_new_units_company_view_and_print_export(self):
+        worker = self.client_as(self.owner_id)
+        headers = {'X-CSRFToken': self.csrf_for(worker)}
+        created = worker.post('/api/reports', data={
+            'client_id': 'new-measure-delivery-test', 'report_type': 'delivery',
+            'customer_name': '', 'recipient_name': 'Site Receiver',
+            'company_project': 'Print Test Company', 'address': 'Print Test Street 9',
+            'report_datetime': '2026-11-10T11:30', 'status': 'completed',
+            'products': json.dumps([
+                {'name': 'Square test product', 'quantity': 12, 'unit': 'sqm'},
+                {'name': 'Linear test product', 'quantity': 8, 'unit': 'linear_meter'},
+                {'name': 'Piece test product', 'quantity': 3, 'unit': 'unit'},
+            ]),
+        }, headers=headers)
+        self.assertEqual(created.status_code, 200, created.json)
+        report_id = created.json['report_id']
+        self.assertEqual(worker.get(f'/api/reports/{report_id}').json['customer_name'], '')
+        with app.app_context():
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Square test product').one().quantity_sqm, -12)
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Linear test product').one().quantity_linear_meter, -8)
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Piece test product').one().quantity_unit, -3)
+            project_id = CompanyProject.query.filter_by(name='Print Test Company').one().id
+
+        admin = self.client_as(self.admin_id)
+        page = admin.get(f'/company-projects/{project_id}')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('Print Test Street 9', page.get_data(as_text=True))
+        self.assertEqual(worker.get(f'/company-projects/{project_id}').status_code, 302)
+
+        export = admin.get(f'/api/export?user_id={self.owner_id}&date_from=2026-11-10&date_to=2026-11-10')
+        workbook = load_workbook(BytesIO(export.data))
+        sheet = workbook['דוחות להדפסה']
+        self.assertEqual(sheet.max_column, 5)
+        self.assertEqual(sheet.page_setup.fitToWidth, 1)
+        self.assertIn('Print Test Street 9', sheet['C5'].value)
+        self.assertIn('12 מ״ר', sheet['D5'].value)
+        self.assertIn('8 מ״א', sheet['D5'].value)
+        self.assertIn('סיכום מוצרים', workbook.sheetnames)
+
+        adjusted = admin.post('/api/inventory/adjust', json={'items': [
+            {'product_name': 'Square test product', 'quantity_sqm': 10}
+        ]}, headers={'X-CSRFToken': self.csrf_for(admin)})
+        self.assertEqual(adjusted.status_code, 200, adjusted.json)
+        with app.app_context():
+            item = InventoryItem.query.filter_by(product_name='Square test product').one()
+            self.assertEqual(item.quantity_sqm, 10)
+            self.assertEqual(item.quantity_meter, 0)
+        restored = admin.get(f'/report/{report_id}?return_to=%2Fdashboard%3Fpage%3D3')
+        self.assertIn('/dashboard?page=3', restored.get_data(as_text=True))
+        unsafe = admin.get(f'/report/{report_id}?return_to=https%3A%2F%2Fevil.example')
+        self.assertNotIn('evil.example', unsafe.get_data(as_text=True))
+
+    def test_second_manager_can_export_selected_worker(self):
+        with app.app_context():
+            manager = User(username='second-manager-export', full_name='Second Manager', role='admin')
+            manager.set_password('manager-password')
+            db.session.add(manager)
+            db.session.commit()
+            manager_id = manager.id
+        try:
+            client = self.client_as(manager_id)
+            self.assertEqual(client.get('/admin?tab=export').status_code, 200)
+            workers = client.get('/api/users').json['users']
+            self.assertIn(self.owner_id, [worker['id'] for worker in workers])
+            export = client.get(f'/api/export?user_id={self.owner_id}')
+            self.assertEqual(export.status_code, 200)
+            sheet = load_workbook(BytesIO(export.data), read_only=True)['דוחות להדפסה']
+            self.assertIn('Owner', sheet['A2'].value)
+        finally:
+            with app.app_context():
+                db.session.delete(db.session.get(User, manager_id))
+                db.session.commit()
 
     def test_legacy_team_names_only_link_unambiguous_accounts(self):
         with app.app_context():

@@ -20,7 +20,7 @@
     <link rel="apple-touch-icon" sizes="192x192" href="/static/images/icon-192.png">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/style.css?v=20261103-02">
+    <link rel="stylesheet" href="/static/css/style.css?v=20261110-01">
     <link rel="stylesheet" href="/static/css/field-ui.css?v=20261013-05">
 
     {% block extra_css %}{% endblock %}
@@ -94,7 +94,7 @@
     </div>
 
     <!-- Floating Action Button (Mobile Only) -->
-    {% if request.endpoint not in ('new_report', 'edit_report', 'delivery_note_detail') %}
+    {% if request.endpoint not in ('dashboard', 'new_report', 'edit_report', 'delivery_note_detail') %}
     <a href="{{ url_for('new_report') }}" class="fab" title="דוח חדש" aria-label="יצירת דוח חדש">
         +
     </a>
@@ -164,9 +164,22 @@
     {% block extra_js %}{% endblock %}
 
     <script>
+        // Keep a useful back destination when a detail page was opened from another app page.
+        if (!new URLSearchParams(location.search).has('return_to') && document.referrer) {
+            try {
+                const previous = new URL(document.referrer);
+                if (previous.origin === location.origin && previous.pathname !== location.pathname &&
+                        !previous.pathname.startsWith('/api/') && previous.pathname !== '/login') {
+                    document.querySelectorAll('a.back-link:not([data-fixed-return])').forEach(link => {
+                        link.href = previous.pathname + previous.search + previous.hash;
+                    });
+                }
+            } catch (_) {}
+        }
+
         // Cache bust / force-update (runs once per version)
         (async () => {
-            const APP_VERSION = '20261103-02';
+            const APP_VERSION = '20261110-01';
             const lastVersion = localStorage.getItem('proshield_app_version');
             if (lastVersion !== APP_VERSION) {
                 localStorage.setItem('proshield_app_version', APP_VERSION);

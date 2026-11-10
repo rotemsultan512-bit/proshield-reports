@@ -43,7 +43,7 @@
         <button class="tab-btn" data-tab="export">📥 יצוא נתונים</button>
         <button class="tab-btn" data-tab="reports-per-user">📊 דוחות לפי משתמש</button>
         <button class="tab-btn" data-tab="company-projects">🏗️ חברות בניה/פרויקטים</button>
-        <button class="tab-btn" data-tab="inventory">📦 מלאי מחסן</button>
+        <a class="tab-btn" href="{{ url_for('inventory_page') }}">📦 מלאי מחסן ←</a>
     </div>
 
     <!-- Users Tab -->
@@ -81,7 +81,7 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label>עובד</label>
+                    <label for="exportUserId">עובד — כולל התקנות שבהן השתתף</label>
                     <select id="exportUserId">
                         <option value="">כל העובדים</option>
                     </select>
@@ -277,7 +277,7 @@
     let usersCache = [];
 
     // Tab switching
-    function activateTab(tabId) {
+    function activateTab(tabId, updateUrl = true) {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
         if (btn) btn.classList.add('active');
@@ -285,6 +285,12 @@
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         const tab = document.getElementById(tabId + 'Tab');
         if (tab) tab.classList.add('active');
+        if (updateUrl && tab) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', tabId);
+            url.searchParams.delete('user_id');
+            window.history.replaceState({}, '', url);
+        }
     }
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -295,14 +301,22 @@
     });
 
     // Load data on page load
-    document.addEventListener('DOMContentLoaded', () => {
-        loadStats();
-        loadUsers();
-        loadCompanyProjects();
-        loadInventory();
-
+    document.addEventListener('DOMContentLoaded', async () => {
+        const initial = new URLSearchParams(window.location.search);
         if (window.location.hash === '#inventory') {
-            activateTab('inventory');
+            window.location.replace('/inventory');
+            return;
+        }
+        const selectedTab = initial.get('tab');
+        if (['users', 'export', 'reports-per-user', 'company-projects'].includes(selectedTab)) {
+            activateTab(selectedTab, false);
+        }
+        await Promise.all([loadStats(), loadUsers()]);
+        loadCompanyProjects();
+        const selectedUserId = initial.get('user_id');
+        if (selectedTab === 'reports-per-user' && selectedUserId && /^\d+$/.test(selectedUserId)) {
+            const selectedUser = usersCache.find(user => String(user.id) === selectedUserId);
+            if (selectedUser) openUserReports(selectedUserId, selectedUser.full_name, false);
         }
     });
 
@@ -492,8 +506,8 @@
 
         container.innerHTML = projects.map(p => `
             <div class="company-project-item">
-                <span class="company-project-name">${escapeHtml(p.name)}</span>
-                <button class="btn btn-ghost btn-sm delete-company-project" data-id="${p.id}">🗑️</button>
+                <a class="company-project-name" href="/company-projects/${p.id}?return_to=${encodeURIComponent('/admin?tab=company-projects')}">${escapeHtml(p.name)} <span aria-hidden="true">←</span></a>
+                <button class="btn btn-ghost btn-sm delete-company-project" data-id="${p.id}" aria-label="הסר ${escapeHtml(p.name)} מהרשימה">🗑️</button>
             </div>
         `).join('');
 
@@ -805,9 +819,12 @@
     // User reports modal
     document.getElementById('closeUserReports')?.addEventListener('click', () => {
         document.getElementById('userReportsModal').classList.remove('active');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('user_id');
+        window.history.replaceState({}, '', url);
     });
 
-    async function openUserReports(userId, userName) {
+    async function openUserReports(userId, userName, updateUrl = true) {
         const modal = document.getElementById('userReportsModal');
         const list = document.getElementById('userReportsList');
         const title = document.getElementById('userReportsTitle');
@@ -817,6 +834,12 @@
         title.textContent = `📊 דוחות - ${userName}`;
         list.innerHTML = '<div class="inventory-empty">טוען דוחות...</div>';
         modal.classList.add('active');
+        if (updateUrl) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', 'reports-per-user');
+            url.searchParams.set('user_id', userId);
+            window.history.replaceState({}, '', url);
+        }
 
         try {
             const response = await fetch(`/api/reports?user_id=${userId}&per_page=200`);
@@ -830,7 +853,7 @@
 
             list.innerHTML = reports.map(r => `
                 <div class="user-report-row">
-                    <a class="user-report-item" href="/report/${r.id}">
+                    <a class="user-report-item" href="/report/${r.id}?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}">
                         <span class="report-title">${r.report_type === 'delivery' ? 'אספקה' : 'התקנה'} • ${escapeHtml(r.address || '')}</span>
                         <span class="report-meta">${formatDate(r.timestamp)} • ${r.status === 'completed' ? 'הושלם' : 'נדרש חזרה'}</span>
                     </a>

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="new-report-page">
     <div class="page-header">
-        <a href="{{ url_for('dashboard') }}" class="back-link">◀ חזרה לדוחות</a>
+        <a href="{{ return_url|default(url_for('dashboard')) }}" class="back-link">◀ חזרה למקום הקודם</a>
         <h1>{% if edit_mode %}עריכת דוח{% else %}דיווח חדש{% endif %}</h1>
     </div>
 
@@ -58,7 +58,7 @@
             </div>
 
             <div class="form-group" id="customerNameWrap" style="display:none;">
-                <label for="customer_name">שם לקוח <span class="required-badge">חובה</span></label>
+                <label for="customer_name">שם לקוח <span id="customerRequiredBadge" class="required-badge">חובה</span><span id="customerOptionalBadge" class="optional-badge" hidden>אופציונלי באספקה</span></label>
                 <input type="text" id="customer_name" name="customer_name" placeholder="הזן שם לקוח...">
             </div>
 
@@ -206,12 +206,15 @@
                             <input type="checkbox" name="products" value="{{ product }}">
                             <span class="product-name">{{ product }}</span>
                             <div class="product-quantity" style="display:none;">
-                                <label id="quantityLabel">כמות:</label>
+                                <span class="quantity-label">כמות:</span>
                                 <div class="quantity-row">
-                                    <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input">
-                                    <select class="quantity-unit">
-                                        <option value="meter" selected>מטר</option>
-                                        <option value="unit">יחידה</option>
+                                    <input type="number" step="0.1" min="0" placeholder="0" class="quantity-input" aria-label="כמות עבור {{ product }}">
+                                    <select class="quantity-unit" aria-label="יחידת מידה עבור {{ product }}">
+                                        <option value="" selected disabled>בחר יחידה</option>
+                                        <option value="sqm">מ״ר</option>
+                                        <option value="linear_meter">מ״א</option>
+                                        <option value="unit">יח׳</option>
+                                        <option value="meter" hidden>מטר</option>
                                     </select>
                                 </div>
                             </div>
@@ -228,9 +231,12 @@
                             </div>
                             <div class="custom-entry-row">
                                 <input type="number" id="customProductQuantityInput" step="0.1" min="0" placeholder="כמות" class="custom-entry-input quantity-input">
-                                <select id="customProductUnitInput" class="quantity-unit">
-                                    <option value="meter" selected>מטר</option>
-                                    <option value="unit">יחידה</option>
+                                <select id="customProductUnitInput" class="quantity-unit" aria-label="יחידת מידה למוצר נוסף">
+                                    <option value="" selected disabled>בחר יחידה</option>
+                                    <option value="sqm">מ״ר</option>
+                                    <option value="linear_meter">מ״א</option>
+                                    <option value="unit">יח׳</option>
+                                    <option value="meter" hidden>מטר</option>
                                 </select>
                                 <button type="button" class="btn btn-sm btn-primary custom-add-btn" id="addCustomProduct">+ הוסף</button>
                             </div>
@@ -402,6 +408,9 @@
     // Delivery / Installation extra fields
     const customerNameWrap = document.getElementById('customerNameWrap');
     const customerNameInput = document.getElementById('customer_name');
+    const customerRequiredBadge = document.getElementById('customerRequiredBadge');
+    const customerOptionalBadge = document.getElementById('customerOptionalBadge');
+    const productUnitLabels = {unit:'יח׳', meter:'מטר', sqm:'מ״ר', linear_meter:'מ״א'};
     const companyProjectWrap = document.getElementById('companyProjectWrap');
     const companyProjectInput = document.getElementById('company_project');
     const companyProjectToggle = document.getElementById('companyProjectToggle');
@@ -950,9 +959,11 @@
                 notesStepLabel.textContent = '7. הערות (אופציונלי)';
                 updateQuantityLabels('כמות שסופקה:');
 
-                // Customer + Date/Time are mandatory
+                // Delivery customer name is optional; recipient and date remain required.
                 customerNameWrap.style.display = 'block';
-                customerNameInput.required = true;
+                customerNameInput.required = false;
+                customerRequiredBadge.style.display = 'none';
+                customerOptionalBadge.style.display = 'inline-flex';
                 companyProjectWrap.style.display = 'block';
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
@@ -980,6 +991,8 @@
                 // Installation: show customer + date
                 customerNameWrap.style.display = 'block';
                 customerNameInput.required = true;
+                customerRequiredBadge.style.display = 'inline-flex';
+                customerOptionalBadge.style.display = 'none';
                 companyProjectWrap.style.display = 'block';
                 reportDateWrap.style.display = 'block';
                 reportDateInput.required = true;
@@ -1003,7 +1016,7 @@
 
 
     function updateQuantityLabels(text) {
-        document.querySelectorAll('.product-quantity label').forEach(label => {
+        document.querySelectorAll('.product-quantity .quantity-label').forEach(label => {
             label.textContent = text;
         });
     }
@@ -1027,7 +1040,7 @@
             if (checkbox.checked) {
                 quantityDiv.style.display = 'flex';
                 const unitSelect = item.querySelector('.quantity-unit');
-                if (unitSelect) unitSelect.value = 'meter';
+                if (unitSelect) unitSelect.value = '';
                 quantityInput.focus();
             } else {
                 quantityDiv.style.display = 'none';
@@ -1037,6 +1050,7 @@
         });
 
         quantityInput.addEventListener('input', updateSelectedProducts);
+        item.querySelector('.quantity-unit')?.addEventListener('change', updateSelectedProducts);
     });
 
     function updateSelectedProducts() {
@@ -1074,7 +1088,7 @@
             selectedList.innerHTML = selectedProducts.map(p => `
                 <div class="selected-item">
                     <span class="item-name">${escapeHtml(p.name)}</span>
-                    <span class="item-qty">${p.quantity} ${p.unit === 'meter' ? 'מ׳' : 'יח׳'}</span>
+                    <span class="item-qty">${p.quantity} ${productUnitLabels[p.unit] || 'בחר יחידה'}</span>
                 </div>
             `).join('');
         }
@@ -1305,7 +1319,7 @@
             return;
         }
 
-        if (!customerName) {
+        if (reportType === 'installation' && !customerName) {
             showToast('יש להזין שם לקוח', 'error');
             customerNameInput.focus();
             return;
@@ -1346,6 +1360,10 @@
 
         if (selectedProducts.length === 0) {
             showToast('יש לבחור לפחות מוצר אחד עם כמות', 'error');
+            return;
+        }
+        if (selectedProducts.some(product => !productUnitLabels[product.unit])) {
+            showToast('יש לבחור יחידת מידה לכל מוצר', 'error');
             return;
         }
 
@@ -1430,7 +1448,8 @@
                 if (!editMode) await clearCompletedDraft(clientId);
                 showToast('הדוח נשמר בהצלחה!', 'success');
                 setTimeout(() => {
-                    window.location.href = `/report/${data.report_id}`;
+                    const returnTo = new URLSearchParams(window.location.search).get('return_to');
+                    window.location.href = `/report/${data.report_id}${returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ''}`;
                 }, 1500);
             } else {
                 showToast(data.error || 'שגיאה בשמירת הדוח', 'error');
@@ -1541,6 +1560,11 @@
             showToast('יש להזין כמות', 'warning');
             return;
         }
+        if (!productUnitLabels[unit] || unit === 'meter') {
+            showToast('יש לבחור מ״ר, מ״א או יח׳', 'warning');
+            customProductUnitInput.focus();
+            return;
+        }
         if (customProducts.some(p => p.name === trimmedName)) {
             showToast('מוצר זה כבר נוסף', 'warning');
             return;
@@ -1548,7 +1572,7 @@
         customProducts.push({
             name: trimmedName,
             quantity: parseFloat(quantity),
-            unit: unit || 'meter'
+            unit
         });
         renderCustomProducts();
         updateSelectedProducts();
@@ -1562,7 +1586,7 @@
         );
         customProductNameInput.value = '';
         customProductQuantityInput.value = '';
-        customProductUnitInput.value = 'meter';
+        customProductUnitInput.value = '';
         customProductNameInput.focus();
     });
 
@@ -1577,7 +1601,7 @@
         if (!customProductList) return;
         customProductList.innerHTML = customProducts.map((p, idx) => `
             <div class="custom-entry-tag">
-                <span>${escapeHtml(p.name)} - ${p.quantity} ${p.unit === 'meter' ? 'מ׳' : 'יח׳'}</span>
+                <span>${escapeHtml(p.name)} - ${p.quantity} ${productUnitLabels[p.unit] || '—'}</span>
                 <button type="button" class="custom-entry-remove" data-index="${idx}">&times;</button>
             </div>
         `).join('');
