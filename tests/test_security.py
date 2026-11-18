@@ -187,6 +187,30 @@ class SecurityTests(unittest.TestCase):
             response = client.post('/login', json=payload, headers=headers)
             self.assertEqual(response.status_code, 400)
 
+    def test_report_session_refreshes_expired_csrf_and_preserves_login_checks(self):
+        anonymous = app.test_client()
+        self.assertEqual(anonymous.get('/api/session').status_code, 401)
+        self.assertEqual(anonymous.get('/api/session').json['code'], 'authentication_required')
+        self.assertEqual(anonymous.get('/dashboard').status_code, 302)
+        client = self.client_as(self.owner_id)
+        session_info = client.get('/api/session')
+        self.assertEqual(session_info.json['user_id'], self.owner_id)
+        self.assertIn('no-store', session_info.headers['Cache-Control'])
+        invalid = client.post('/api/reports', data={'client_id': 'csrf-recovery'}, headers={'X-CSRFToken': 'expired'})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.json['code'], 'csrf_expired')
+        fresh = client.get('/api/session').json['csrf_token']
+        form = {'client_id': 'csrf-recovery', 'report_type': 'delivery', 'recipient_name': 'Receiver',
+                'address': 'Recovered upload', 'status': 'completed', 'report_datetime': '2026-11-18T13:00',
+                'products': json.dumps([{'name': 'Recovery product', 'quantity': 2, 'unit': 'unit'}])}
+        first = client.post('/api/reports', data=form, headers={'X-CSRFToken': fresh})
+        again = client.post('/api/reports', data=form, headers={'X-CSRFToken': fresh})
+        self.assertEqual(first.status_code, 200, first.json)
+        self.assertEqual(first.json['report_id'], again.json['report_id'])
+        with app.app_context():
+            self.assertEqual(Report.query.filter_by(client_id='csrf-recovery').count(), 1)
+            self.assertEqual(InventoryItem.query.filter_by(product_name='Recovery product').one().quantity_unit, -2)
+
     def test_employee_recovery_code_is_one_use_and_revokes_old_sessions(self):
         with app.app_context():
             worker = User(username='recovery-worker', full_name='Recovery Worker', role='user')

@@ -32,6 +32,16 @@
         <div id="draftsList" class="drafts-list"></div>
     </section>
 
+    <section class="drafts-panel pending-reports-panel" id="pendingReportsPanel" aria-labelledby="pendingReportsTitle" hidden>
+        <h2 id="pendingReportsTitle">דוחות שעדיין לא נשלחו</h2>
+        <p>הדוחות והתמונות נשמרו במכשיר הזה. הם יהפכו לדוחות במערכת לאחר אישור מהשרת.</p>
+        <div class="pending-sync-actions">
+            <button type="button" class="btn btn-primary" id="syncPendingBtn">נסה לשלוח עכשיו</button>
+            <span id="pendingSyncStatus" role="status" aria-live="polite"></span>
+        </div>
+        <div id="pendingReportsList" class="drafts-list"></div>
+    </section>
+
     <!-- KPI Stats Cards -->
     <div class="stats-row" id="statsRow">
         <div class="stat-card gradient-blue">
@@ -202,6 +212,7 @@
     <div class="offline-reports-banner" id="offlineReportsBanner" style="display:none;">
         <span>יש <span id="offlineCount">0</span> דוחות שממתינים לסנכרון <span id="legacyOfflineNotice"></span></span>
         <button class="btn btn-sm" id="syncNowBtn">סנכרן עכשיו</button>
+        <a href="#pendingReportsPanel" class="pending-details-link">פרטים ותיקון הדוח</a>
     </div>
 </div>
 {% endblock %}
@@ -236,7 +247,7 @@
         else updateQuickFilterState('all');
         loadReports();
         loadStats();
-        checkOfflineReports();
+        checkOfflineReports().then(queued => { if (queued?.length) syncOfflineReports(); });
         checkDrafts();
     });
 
@@ -353,6 +364,7 @@
 
     // Sync button
     document.getElementById('syncNowBtn').addEventListener('click', () => syncOfflineReports(true));
+    document.getElementById('syncPendingBtn').addEventListener('click', () => syncOfflineReports(true));
 
     // Load stats
     async function loadStats() {
@@ -623,10 +635,54 @@
 
     async function checkOfflineReports() {
         const userId = document.querySelector('meta[name="current-user-id"]').content;
-        const queued = await OfflineQueue.list(userId);
+        let queued;
+        try { queued = await OfflineQueue.list(userId); } catch (error) {
+            document.getElementById('pendingReportsPanel').hidden = false;
+            document.getElementById('pendingSyncStatus').textContent = error.message || 'לא ניתן לקרוא את הדוחות השמורים. סגרו ופתחו את האפליקציה ונסו שוב.';
+            return [];
+        }
         const legacy = legacyOfflineReports();
         const banner = document.getElementById('offlineReportsBanner');
         const countSpan = document.getElementById('offlineCount');
+        const panel = document.getElementById('pendingReportsPanel');
+        panel.hidden = queued.length + legacy.length === 0;
+        const list = document.getElementById('pendingReportsList');
+        list.replaceChildren();
+        for (const report of queued) {
+            const fields = new Map(report.fields);
+            const row = document.createElement('div');
+            row.className = 'draft-row';
+            const details = document.createElement('div');
+            details.className = 'draft-details';
+            const title = document.createElement('strong');
+            title.textContent = `${fields.get('report_type') === 'delivery' ? 'אספקה' : 'התקנה'} · ${fields.get('address') || 'ללא כתובת'}`;
+            const saved = document.createElement('small');
+            const photoCount = report.fields.filter(([name]) => name === 'images').length;
+            saved.textContent = `נשמר במכשיר ב־${new Date(report.createdAt).toLocaleString('he-IL')} · ${photoCount} תמונות`;
+            details.append(title, saved);
+            if (report.lastError) {
+                const error = document.createElement('p');
+                error.className = 'pending-report-error';
+                error.textContent = report.lastError.message;
+                details.append(error);
+            }
+            const actions = document.createElement('div');
+            actions.className = 'draft-actions';
+            const edit = document.createElement('a');
+            edit.className = 'btn btn-secondary btn-sm';
+            edit.href = `/report/new?pending=${encodeURIComponent(report.id)}`;
+            edit.textContent = 'פתח להמשך מילוי ותיקון';
+            actions.append(edit);
+            if (report.lastError?.needsLogin) {
+                const login = document.createElement('a');
+                login.className = 'btn btn-primary btn-sm';
+                login.href = '/login';
+                login.textContent = 'התחבר מחדש';
+                actions.append(login);
+            }
+            row.append(details, actions);
+            list.append(row);
+        }
 
         if (queued.length + legacy.length > 0) {
             countSpan.textContent = queued.length + legacy.length;
@@ -635,24 +691,30 @@
         } else {
             banner.style.display = 'none';
         }
+        return queued;
     }
 
+    let syncInProgress = false;
     async function syncOfflineReports(includeLegacy = false) {
-        const userId = document.querySelector('meta[name="current-user-id"]').content;
-        const queued = await OfflineQueue.list(userId);
-        const legacy = legacyOfflineReports();
-        if (queued.length === 0 && legacy.length === 0) {
-            showToast('אין דוחות לסנכרון', 'info');
-            return;
-        }
-
-        if (!navigator.onLine) {
-            showToast('אין חיבור לאינטרנט', 'error');
-            return;
-        }
-
+        if (syncInProgress) return;
+        syncInProgress = true;
+        const buttons = [document.getElementById('syncNowBtn'), document.getElementById('syncPendingBtn')];
+        buttons.forEach(button => { button.disabled = true; button.textContent = 'בודק חיבור ושולח...'; });
+        const syncStatus = document.getElementById('pendingSyncStatus');
+        syncStatus.textContent = 'בודק חיבור ושולח את הדוחות השמורים...';
         try {
-            const result = await OfflineQueue.sync(userId);
+            const userId = document.querySelector('meta[name="current-user-id"]').content;
+            const queued = await OfflineQueue.list(userId);
+            const legacy = legacyOfflineReports();
+            if (queued.length === 0 && legacy.length === 0) {
+                showToast('אין דוחות לסנכרון', 'info');
+                return;
+            }
+
+            const result = await OfflineQueue.sync(userId, report => {
+                const address = new Map(report.fields).get('address') || 'דוח';
+                syncStatus.textContent = `שולח: ${address}. אפשר להמתין עד 45 שניות לכל דוח.`;
+            });
             let synced = result.synced;
             let failed = result.failed;
             if (includeLegacy && legacy.length) {
@@ -689,10 +751,19 @@
                 loadReports();
                 loadStats();
             }
-            if (failed) showToast(`${failed} דוחות עדיין ממתינים לבדיקה או לניסיון חוזר`, 'error');
+            if (failed) {
+                syncStatus.textContent = result.errors[0]?.message || 'הדוח לא נשלח. אפשר לפתוח אותו לתיקון בהמשך המסך.';
+                showToast(syncStatus.textContent, 'error');
+            } else syncStatus.textContent = synced ? `${synced} דוחות נשלחו ואושרו בשרת` : 'אין דוחות חדשים לשליחה';
             await checkOfflineReports();
         } catch (error) {
-            showToast('שגיאת תקשורת', 'error');
+            syncStatus.textContent = error.message || 'לא ניתן לסנכרן כרגע. הדוח נשמר במכשיר.';
+            showToast(syncStatus.textContent, 'error');
+        } finally {
+            syncInProgress = false;
+            buttons.forEach(button => { button.disabled = false; });
+            buttons[0].textContent = 'סנכרן עכשיו';
+            buttons[1].textContent = 'נסה לשלוח עכשיו';
         }
     }
 
