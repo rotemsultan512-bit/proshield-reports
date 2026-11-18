@@ -1503,7 +1503,7 @@ a:hover {
 /* Offline Reports Banner */
 .offline-reports-banner {
     position: fixed;
-    bottom: var(--space-6);
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
     right: var(--space-4);
     left: var(--space-4);
     background: var(--brand-secondary);
@@ -1515,9 +1515,18 @@ a:hover {
     justify-content: space-between;
     gap: var(--space-4);
     box-shadow: var(--shadow-xl);
-    z-index: 50;
+    z-index: 95;
+    flex-wrap: wrap;
     animation: slideUp 0.4s ease;
 }
+
+.pending-reports-panel[hidden] { display: none; }
+.pending-reports-panel { scroll-margin-top: 90px; border-inline-start: 4px solid var(--brand-primary); }
+.pending-sync-actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-block: 1rem; }
+.pending-sync-actions [role="status"] { color: var(--text-secondary); flex: 1 1 200px; }
+.pending-report-error { margin: .25rem 0; color: var(--error); font-weight: 600; overflow-wrap: anywhere; }
+.pending-details-link { color: #fff; text-decoration: underline; min-height: 44px; display: inline-flex; align-items: center; }
+.offline-reports-banner .btn { min-height: 44px; }
 
 .draft-status,
 .drafts-panel {

@@ -3,7 +3,7 @@
  * PWA Offline Support & Caching
  */
 
-const STATIC_CACHE = 'proshield-static-v18';
+const STATIC_CACHE = 'proshield-static-v19';
 
 // Static assets to cache
 const STATIC_ASSETS = [
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
     '/static/css/field-ui.css',
     '/static/js/app.js',
     '/static/js/offline-queue.js',
+    '/static/js/report-transport.js',
     '/static/js/draft-store.js',
     '/manifest.json',
 

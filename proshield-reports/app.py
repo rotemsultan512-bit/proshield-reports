@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, send_file, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from werkzeug.utils import secure_filename
 from PIL import Image
 import pypdfium2 as pdfium
@@ -39,6 +39,31 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'יש להתחבר כדי לגשת לעמוד זה'
+
+
+@login_manager.unauthorized_handler
+def authentication_required():
+    if request.path.startswith('/api/'):
+        return jsonify(success=False, code='authentication_required',
+                       error='ההתחברות פגה. יש להתחבר מחדש; הדוח נשמר במכשיר.'), 401
+    return redirect(url_for('login', next=request.full_path.rstrip('?')))
+
+
+@app.errorhandler(CSRFError)
+def csrf_error(error):
+    if request.path.startswith('/api/'):
+        if not current_user.is_authenticated and request.endpoint != 'redeem_password_reset':
+            return authentication_required()
+        return jsonify(success=False, code='csrf_expired',
+                       error='נדרש חידוש חיבור מאובטח. נסו שוב.'), 400
+    return error.description, 400
+
+
+@app.route('/api/session')
+@login_required
+def report_session():
+    """Refresh the request token without losing an open field report."""
+    return jsonify(user_id=current_user.id, csrf_token=generate_csrf())
 
 REPORT_UNITS = {'unit': 'יח׳', 'meter': 'מטר', 'sqm': 'מ״ר', 'linear_meter': 'מ״א'}
 INVENTORY_UNIT_FIELDS = {

@@ -357,7 +357,8 @@
 <script>
     // DOM Elements
     const reportForm = document.getElementById('reportForm');
-    const requestedDraftId = new URLSearchParams(location.search).get('draft');
+    const requestedPendingId = new URLSearchParams(location.search).get('pending');
+    const requestedDraftId = new URLSearchParams(location.search).get('draft') || requestedPendingId;
     const pendingClientId = requestedDraftId && /^[0-9a-f-]{36}$/i.test(requestedDraftId) ? requestedDraftId : crypto.randomUUID();
     const reportTypeInputs = document.querySelectorAll('input[name="report_type"]');
     const addressLabel = document.getElementById('addressLabel');
@@ -526,7 +527,16 @@
     async function restoreDraft() {
         if (editMode || !requestedDraftId) return;
         try {
-            const draft = await DraftStore.get(pendingClientId, currentUserId);
+            let draft = await DraftStore.get(pendingClientId, currentUserId);
+            if (requestedPendingId) {
+                const queued = await OfflineQueue.get(pendingClientId, currentUserId);
+                if (queued) {
+                    draft ||= OfflineQueue.toDraft(queued);
+                    // Keep the complete original until the editable draft is safely stored.
+                    await DraftStore.save(draft);
+                    await OfflineQueue.remove(queued.id);
+                }
+            }
             if (!draft) {
                 showToast('הטיוטה אינה זמינה במכשיר הזה', 'warning');
                 return;
@@ -1421,34 +1431,17 @@
         }
 
         try {
-            if (!navigator.onLine) {
-                if (editMode) {
-                    showToast('עריכת דוח דורשת חיבור לאינטרנט', 'error');
-                    return;
-                }
-                await OfflineQueue.save(formData, currentUserId, clientId);
-                reportFinalized = true;
-                await clearCompletedDraft(clientId);
-                showToast('הדוח והקבצים נשמרו במכשיר לסנכרון', 'info');
-                setTimeout(() => window.location.href = '/dashboard', 1500);
-                return;
-            }
-
             const endpoint = editMode && editReportId ? `/api/reports/${editReportId}` : '/api/reports';
             const method = editMode && editReportId ? 'PUT' : 'POST';
-            const response = await fetch(endpoint, {
-                method: method,
-                body: formData
-            });
-
-            const data = await response.json();
+            // Reachability is checked against the server; phone network hints can be stale.
+            const data = await ReportTransport.send(formData, currentUserId, {url: endpoint, method});
 
             if (data.success) {
                 reportFinalized = true;
                 if (!editMode) await clearCompletedDraft(clientId);
                 showToast('הדוח נשמר בהצלחה!', 'success');
                 setTimeout(() => {
-                    const returnTo = new URLSearchParams(window.location.search).get('return_to');
+                    const returnTo = new URLSearchParams(window.location.search).get('return_to') || '/dashboard';
                     window.location.href = `/report/${data.report_id}${returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ''}`;
                 }, 1500);
             } else {
@@ -1456,8 +1449,8 @@
             }
         } catch (error) {
             console.error('Error:', error);
-            if (editMode) {
-                showToast('העדכון לא אושר על ידי השרת. יש לנסות שוב.', 'error');
+            if (editMode || (error.status >= 400 && error.status < 500 && !error.needsLogin)) {
+                showToast(error.message || 'העדכון לא אושר על ידי השרת. יש לנסות שוב.', 'error');
             } else {
                 try {
                     await OfflineQueue.save(formData, currentUserId, clientId);
